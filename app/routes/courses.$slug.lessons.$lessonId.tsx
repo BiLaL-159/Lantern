@@ -9,7 +9,14 @@ import {
 import { getLessonById } from "~/services/lessonService";
 import { getModuleById } from "~/services/moduleService";
 import { getCurrentUserId } from "~/lib/session";
+import { getUserById } from "~/services/userService";
 import { isUserEnrolled } from "~/services/enrollmentService";
+import {
+  createComment,
+  getCommentById,
+  getCommentsForLesson,
+  softDeleteComment,
+} from "~/services/commentService";
 import {
   getLessonProgress,
   getLessonProgressForCourse,
@@ -26,7 +33,8 @@ import {
   getBestAttempt,
 } from "~/services/quizService";
 import { computeResult } from "~/services/quizScoringService";
-import { LessonProgressStatus } from "~/db/schema";
+import { LessonProgressStatus, UserRole } from "~/db/schema";
+import { LessonComments } from "~/components/lesson-comments";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -248,6 +256,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     }
   }
 
+  // Discussion: enrolled students plus the course instructor and admins may
+  // post; the same set moderates (instructor/admin can remove any comment).
+  const currentUser = currentUserId ? getUserById(currentUserId) : null;
+  const isCourseInstructor = course.instructorId === currentUserId;
+  const isAdmin = currentUser?.role === UserRole.Admin;
+  const canModerateComments = isCourseInstructor || isAdmin;
+  const canPostComment = enrolled || canModerateComments;
+  const comments = getCommentsForLesson(lessonId);
+
   return {
     course: {
       id: courseWithDetails.id,
@@ -281,6 +298,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    canPostComment,
+    canModerateComments,
   };
 }
 
@@ -329,6 +349,64 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
 
     return { quizResult: result };
+  }
+
+  if (intent === "post-comment") {
+    const currentUser = getUserById(currentUserId);
+    const isCourseInstructor = course.instructorId === currentUserId;
+    const isAdmin = currentUser?.role === UserRole.Admin;
+    const canPost =
+      isUserEnrolled(currentUserId, course.id) ||
+      isCourseInstructor ||
+      isAdmin;
+    if (!canPost) {
+      throw data("You must be enrolled to join the discussion", {
+        status: 403,
+      });
+    }
+
+    const body = String(formData.get("body") ?? "");
+    if (body.trim().length === 0) {
+      return { commentError: "Comment cannot be empty" };
+    }
+
+    const parentRaw = formData.get("parentId");
+    const parentId = parentRaw != null ? Number(parentRaw) : null;
+    if (parentId !== null && isNaN(parentId)) {
+      throw data("Invalid parent comment", { status: 400 });
+    }
+
+    try {
+      createComment(currentUserId, lessonId, body, parentId);
+    } catch (e) {
+      return {
+        commentError: e instanceof Error ? e.message : "Could not post comment",
+      };
+    }
+    return { commentSuccess: true };
+  }
+
+  if (intent === "delete-comment") {
+    const commentId = Number(formData.get("commentId"));
+    if (isNaN(commentId)) {
+      throw data("Invalid comment", { status: 400 });
+    }
+
+    const comment = getCommentById(commentId);
+    if (!comment || comment.lessonId !== lessonId) {
+      throw data("Comment not found", { status: 404 });
+    }
+
+    const currentUser = getUserById(currentUserId);
+    const isAuthor = comment.userId === currentUserId;
+    const isCourseInstructor = course.instructorId === currentUserId;
+    const isAdmin = currentUser?.role === UserRole.Admin;
+    if (!isAuthor && !isCourseInstructor && !isAdmin) {
+      throw data("You cannot delete this comment", { status: 403 });
+    }
+
+    softDeleteComment(commentId);
+    return { commentSuccess: true };
   }
 
   throw data("Invalid action", { status: 400 });
@@ -382,6 +460,9 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    canPostComment,
+    canModerateComments,
   } = loaderData;
   const [autoplay, toggleAutoplay] = useAutoplay();
   const fetcher = useFetcher({ key: `mark-complete-${lesson.id}` });
@@ -592,8 +673,16 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
             </div>
           )}
 
+          {/* Discussion */}
+          <LessonComments
+            threads={comments}
+            currentUserId={currentUserId}
+            canPost={canPostComment}
+            canModerate={canModerateComments}
+          />
+
           {/* Prev/Next Navigation */}
-          <div className="flex items-center justify-between border-t pt-6">
+          <div className="mt-12 flex items-center justify-between border-t pt-6">
             {prevLesson ? (
               <Link
                 to={`/courses/${course.slug}/lessons/${prevLesson.id}`}
