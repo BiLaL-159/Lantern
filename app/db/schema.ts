@@ -4,6 +4,8 @@ import {
   integer,
   real,
   uniqueIndex,
+  index,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 export enum UserRole {
@@ -268,6 +270,37 @@ export const courseRatings = sqliteTable(
       table.userId,
       table.courseId
     ),
+  ]
+);
+
+export const lessonComments = sqliteTable(
+  "lesson_comments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    lessonId: integer("lesson_id")
+      .notNull()
+      .references(() => lessons.id),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id),
+    // Null for top-level comments; set to a top-level comment's id for replies.
+    // Threads are two levels deep — replies never nest under other replies.
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => lessonComments.id
+    ),
+    body: text("body").notNull(),
+    // Soft delete: preserves the row (and any replies) after moderation.
+    deletedAt: text("deleted_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [
+    index("lesson_comments_lesson_idx").on(table.lessonId),
+    index("lesson_comments_parent_idx").on(table.parentId),
   ]
 );
 
