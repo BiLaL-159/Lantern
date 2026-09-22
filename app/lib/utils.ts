@@ -26,6 +26,13 @@ export function formatUsd(cents: number): string {
 }
 
 /**
+ * Format a whole-number count with thousands separators: 1,284.
+ */
+export function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
  * Format an amount of money in cents as compact US dollars for axis ticks:
  * $0, $175, $1.2K, $4.3M.
  */

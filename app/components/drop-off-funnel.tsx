@@ -8,6 +8,8 @@ import {
   YAxis,
 } from "recharts";
 import type { DropOffStep } from "~/services/analyticsService";
+import { AXIS_TICK, ChartTooltip } from "./chart-primitives";
+import { formatCount } from "~/lib/utils";
 
 // ─── Drop-off Funnel ───
 // One horizontal bar per lesson in course order, showing the share of
@@ -28,30 +30,27 @@ function FunnelTooltip({
   const step = payload?.[0]?.payload;
   if (!active || !step) return null;
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
+    <ChartTooltip>
       <p className="font-semibold">
         {step.percent}%{" "}
         <span className="font-normal text-muted-foreground">
-          · {step.completed.toLocaleString("en-US")} of{" "}
-          {enrolled.toLocaleString("en-US")} enrolled
+          · {formatCount(step.completed)} of {formatCount(enrolled)} enrolled
         </span>
       </p>
       <p className="text-muted-foreground">
         {step.moduleTitle} · {step.title}
       </p>
-    </div>
+    </ChartTooltip>
   );
 }
 
 export function DropOffFunnel({
   steps,
   enrolled,
-  color = "var(--chart-1)",
 }: {
   steps: DropOffStep[];
   /** Denominator for every bar: all enrolled students. */
   enrolled: number;
-  color?: string;
 }) {
   if (steps.length === 0) {
     return (
@@ -76,7 +75,7 @@ export function DropOffFunnel({
             domain={[0, 100]}
             ticks={[0, 25, 50, 75, 100]}
             tickFormatter={(v: number) => `${v}%`}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+            tick={AXIS_TICK}
             tickLine={false}
             axisLine={{ stroke: "var(--border)" }}
           />
@@ -85,7 +84,7 @@ export function DropOffFunnel({
             dataKey="title"
             width={160}
             interval={0}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+            tick={AXIS_TICK}
             tickLine={false}
             axisLine={false}
           />
@@ -95,7 +94,7 @@ export function DropOffFunnel({
           />
           <Bar
             dataKey="percent"
-            fill={color}
+            fill="var(--chart-1)"
             radius={[0, 4, 4, 0]}
             isAnimationActive={false}
             label={{
