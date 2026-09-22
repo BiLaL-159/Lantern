@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from "react-router";
 import { cn, withSearchParam } from "~/lib/utils";
-import { TREND_WINDOWS, type TrendWindow } from "~/services/analyticsService";
+import { TREND_WINDOWS, type TrendWindow } from "~/lib/trends";
 
 // ─── Window Picker ───
 // Chooses the Trend Window (30d / 90d / all-time). The choice lives in the
