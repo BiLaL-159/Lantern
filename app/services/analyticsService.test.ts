@@ -542,17 +542,17 @@ describe("analyticsService", () => {
         average: null,
         count: 0,
         distribution: [
-          { rating: 5, count: 0 },
-          { rating: 4, count: 0 },
-          { rating: 3, count: 0 },
-          { rating: 2, count: 0 },
-          { rating: 1, count: 0 },
+          { rating: 5, count: 0, percent: 0 },
+          { rating: 4, count: 0, percent: 0 },
+          { rating: 3, count: 0, percent: 0 },
+          { rating: 2, count: 0, percent: 0 },
+          { rating: 1, count: 0, percent: 0 },
         ],
         comments: 0,
       });
     });
 
-    it("averages ratings and counts each star, highest first, with zeros for unused stars", () => {
+    it("averages ratings and shares each star, highest first, with zeros for unused stars", () => {
       const students = ["a", "b", "c", "d", "e"].map((n) =>
         makeStudent(`${n}@example.com`)
       );
@@ -568,11 +568,11 @@ describe("analyticsService", () => {
       expect(sentiment.average).toBeCloseTo(3.8);
       expect(sentiment.count).toBe(5);
       expect(sentiment.distribution).toEqual([
-        { rating: 5, count: 2 },
-        { rating: 4, count: 2 },
-        { rating: 3, count: 0 },
-        { rating: 2, count: 0 },
-        { rating: 1, count: 1 },
+        { rating: 5, count: 2, percent: 40 },
+        { rating: 4, count: 2, percent: 40 },
+        { rating: 3, count: 0, percent: 0 },
+        { rating: 2, count: 0, percent: 0 },
+        { rating: 1, count: 1, percent: 20 },
       ]);
     });
 
