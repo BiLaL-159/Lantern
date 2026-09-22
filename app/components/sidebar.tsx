@@ -4,6 +4,7 @@ import { cn } from "~/lib/utils";
 import { UserRole } from "~/db/schema";
 import { UserAvatar } from "~/components/user-avatar";
 import {
+  BarChart3,
   BookOpen,
   LayoutDashboard,
   GraduationCap,
@@ -45,6 +46,8 @@ interface NavItem {
   to: string;
   icon: React.ReactNode;
   roles: UserRole[] | "all";
+  /** Only highlight on an exact match, not on nested routes. */
+  end?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -64,6 +67,13 @@ const navItems: NavItem[] = [
     label: "My Courses",
     to: "/instructor",
     icon: <GraduationCap className="size-4" />,
+    roles: [UserRole.Instructor],
+    end: true,
+  },
+  {
+    label: "Analytics",
+    to: "/instructor/analytics",
+    icon: <BarChart3 className="size-4" />,
     roles: [UserRole.Instructor],
   },
   {
@@ -128,6 +138,7 @@ export function Sidebar({
             <NavLink
               key={item.to}
               to={item.to}
+              end={item.end}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
