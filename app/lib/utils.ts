@@ -33,6 +33,14 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * Format an average rating to one decimal, or an em dash when there are
+ * no ratings (average is null).
+ */
+export function formatRating(average: number | null): string {
+  return average === null ? "—" : average.toFixed(1);
+}
+
+/**
  * Format an amount of money in cents as compact US dollars for axis ticks:
  * $0, $175, $1.2K, $4.3M.
  */
