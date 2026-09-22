@@ -180,7 +180,12 @@ function percent(numerator: number, denominator: number) {
 
 // ─── Sentiment ───
 
-export type RatingBucket = { rating: number; count: number };
+export type RatingBucket = {
+  rating: number;
+  count: number;
+  /** count ÷ all ratings, as a whole-number percentage. */
+  percent: number;
+};
 
 // Stars in display order, highest first.
 const STARS = [5, 4, 3, 2, 1];
@@ -192,6 +197,10 @@ const STARS = [5, 4, 3, 2, 1];
  * bucket per star, highest first, every star present even at zero.
  * comments counts non-deleted comments on the course's lessons, replies
  * included; a live reply under a deleted parent still counts.
+ *
+ * average and count are derived from the per-star rows rather than
+ * ratingService.getCourseRatingStats so the section costs one query and
+ * the three rating figures cannot disagree.
  */
 export function getCourseSentiment(courseId: number) {
   const perStar = db
@@ -203,14 +212,14 @@ export function getCourseSentiment(courseId: number) {
     .where(eq(courseRatings.courseId, courseId))
     .groupBy(courseRatings.rating)
     .all();
-  const counts = new Map(perStar.map((r) => [r.rating, r.count]));
-  const distribution: RatingBucket[] = STARS.map((rating) => ({
-    rating,
-    count: counts.get(rating) ?? 0,
-  }));
-
   const count = perStar.reduce((sum, r) => sum + r.count, 0);
-  const total = perStar.reduce((sum, r) => sum + r.rating * r.count, 0);
+  const ratingSum = perStar.reduce((sum, r) => sum + r.rating * r.count, 0);
+
+  const counts = new Map(perStar.map((r) => [r.rating, r.count]));
+  const distribution: RatingBucket[] = STARS.map((rating) => {
+    const n = counts.get(rating) ?? 0;
+    return { rating, count: n, percent: percent(n, count) };
+  });
 
   const commentRow = db
     .select({ comments: sql<number>`count(*)` })
@@ -223,7 +232,7 @@ export function getCourseSentiment(courseId: number) {
     .get();
 
   return {
-    average: count === 0 ? null : total / count,
+    average: count === 0 ? null : ratingSum / count,
     count,
     distribution,
     comments: commentRow?.comments ?? 0,
