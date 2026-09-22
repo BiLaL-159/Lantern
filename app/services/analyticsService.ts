@@ -537,19 +537,39 @@ function bucketize(
   }));
 }
 
-// Each row counts once, for Trends that count events rather than sum money.
-const ONE = sql<number>`1`;
+// Counts each row once, for Trends that count events rather than sum money.
+const ONE_PER_ROW = sql<number>`1`;
 
-// The events a Trend sums: one table's timestamped rows, each contributing
-// a value (price paid for revenue, 1 for a count). `where` scopes them to a
-// course, or is undefined for the whole platform.
+// The events a Trend reports: one table's timestamped rows, each
+// contributing a value (price paid for revenue, one for a count). The
+// table comes from the timestamp column itself, so a source cannot mix
+// columns from two tables. `where` scopes the events to a course, or is
+// left out for the whole platform.
 type TrendSource = {
-  table: AnySQLiteTable;
   /** The ISO timestamp column the events are dated by. */
   at: AnySQLiteColumn<{ data: string; notNull: true }>;
   value: AnySQLiteColumn<{ data: number; notNull: true }> | SQL<number>;
   where?: SQL;
 };
+
+/** When the source's first event happened, or null when it has none. */
+function earliestEvent({ at, where }: TrendSource): string | null {
+  const row = db
+    .select({ at: sql<string | null>`min(${at})` })
+    .from(at.table)
+    .where(where)
+    .get();
+  return row?.at ?? null;
+}
+
+/** The source's events from the grid's first bucket onwards. */
+function eventsSince({ at, value, where }: TrendSource, { first }: Bucketing) {
+  return db
+    .select({ at, value })
+    .from(at.table)
+    .where(and(where, gte(at, first.toISOString())))
+    .all();
+}
 
 /**
  * Sums a source's events into the Window's buckets. 30d is bucketed daily;
@@ -558,25 +578,13 @@ type TrendSource = {
  * All-time is empty when the source has no events at all.
  */
 function eventTrend(
-  { table, at, value, where }: TrendSource,
+  source: TrendSource,
   window: TrendWindow,
   now: Date
 ): TrendPoint[] {
-  const earliest = db
-    .select({ at: sql<string | null>`min(${at})` })
-    .from(table)
-    .where(where)
-    .get();
-  const bucketing = bucketingFor(window, now, earliest?.at ?? null);
+  const bucketing = bucketingFor(window, now, earliestEvent(source));
   if (!bucketing) return [];
-
-  const rows = db
-    .select({ at, value })
-    .from(table)
-    .where(and(where, gte(at, bucketing.first.toISOString())))
-    .all();
-
-  return bucketize(rows, bucketing);
+  return bucketize(eventsSince(source, bucketing), bucketing);
 }
 
 /** Revenue Trend for a course: price paid, in cents, summed per bucket. */
@@ -587,7 +595,6 @@ export function getCourseRevenueTrend(
 ): TrendPoint[] {
   return eventTrend(
     {
-      table: purchases,
       at: purchases.createdAt,
       value: purchases.pricePaid,
       where: eq(purchases.courseId, courseId),
@@ -608,9 +615,8 @@ export function getCourseEnrollmentTrend(
 ): TrendPoint[] {
   return eventTrend(
     {
-      table: enrollments,
       at: enrollments.enrolledAt,
-      value: ONE,
+      value: ONE_PER_ROW,
       where: eq(enrollments.courseId, courseId),
     },
     window,
@@ -618,29 +624,19 @@ export function getCourseEnrollmentTrend(
   );
 }
 
-/** Revenue Trend across every course on the platform. */
-export function getPlatformRevenueTrend(
-  window: TrendWindow,
-  now: Date
-): TrendPoint[] {
-  return eventTrend(
-    { table: purchases, at: purchases.createdAt, value: purchases.pricePaid },
-    window,
-    now
-  );
-}
+// ─── Platform Trends ───
 
-/** Enrollments Trend across every course on the platform. */
-export function getPlatformEnrollmentTrend(
-  window: TrendWindow,
-  now: Date
-): TrendPoint[] {
-  return eventTrend(
-    { table: enrollments, at: enrollments.enrolledAt, value: ONE },
-    window,
-    now
-  );
-}
+const SIGNUPS: TrendSource = { at: users.createdAt, value: ONE_PER_ROW };
+
+const PLATFORM_REVENUE: TrendSource = {
+  at: purchases.createdAt,
+  value: purchases.pricePaid,
+};
+
+const PLATFORM_ENROLLMENTS: TrendSource = {
+  at: enrollments.enrolledAt,
+  value: ONE_PER_ROW,
+};
 
 // The roles a new-users Trend reports, in the order they are drawn.
 export const NEW_USER_ROLES = [
@@ -651,32 +647,61 @@ export const NEW_USER_ROLES = [
 
 export type RoleTrend = { role: UserRole; points: TrendPoint[] };
 
+export type PlatformTrends = {
+  /** Signups per bucket, one series per role. */
+  newUsers: RoleTrend[];
+  revenue: TrendPoint[];
+  enrollments: TrendPoint[];
+};
+
 /**
- * New users per bucket, one series per role, taken from each user's
- * creation time. Every role gets a series over the same grid — a role
- * nobody signed up for is all zeros — so the series can be drawn on one
- * chart. All-time starts at the week of the platform's first signup; with
- * no users at all every series is empty.
+ * The three platform Trends for a Window, all on one bucket grid so the
+ * charts under a single Window picker share an x-axis. All-time runs from
+ * the earliest of the first signup, purchase or enrollment, which means a
+ * series with nothing in it is a flat line over that grid rather than a
+ * shorter chart. Every series is empty only when the platform has no
+ * events at all.
+ *
+ * New users are split by role, taken from each user's creation time; every
+ * role gets a series, so a role nobody signed up for is all zeros.
  */
-export function getNewUsersTrend(window: TrendWindow, now: Date): RoleTrend[] {
-  const earliest = db
-    .select({ at: sql<string | null>`min(${users.createdAt})` })
-    .from(users)
-    .get();
-  const bucketing = bucketingFor(window, now, earliest?.at ?? null);
-  if (!bucketing) return NEW_USER_ROLES.map((role) => ({ role, points: [] }));
+export function getPlatformTrends(
+  window: TrendWindow,
+  now: Date
+): PlatformTrends {
+  const starts = [SIGNUPS, PLATFORM_REVENUE, PLATFORM_ENROLLMENTS]
+    .map((source) => earliestEvent(source))
+    .filter((at): at is string => at !== null)
+    // ISO timestamps sort lexicographically in time order.
+    .sort();
+
+  const bucketing = bucketingFor(window, now, starts[0] ?? null);
+  if (!bucketing) {
+    return {
+      newUsers: NEW_USER_ROLES.map((role) => ({ role, points: [] })),
+      revenue: [],
+      enrollments: [],
+    };
+  }
 
   const signups = db
-    .select({ role: users.role, at: users.createdAt, value: ONE })
+    .select({ role: users.role, at: users.createdAt, value: ONE_PER_ROW })
     .from(users)
     .where(gte(users.createdAt, bucketing.first.toISOString()))
     .all();
 
-  return NEW_USER_ROLES.map((role) => ({
-    role,
-    points: bucketize(
-      signups.filter((signup) => signup.role === role),
+  return {
+    newUsers: NEW_USER_ROLES.map((role) => ({
+      role,
+      points: bucketize(
+        signups.filter((signup) => signup.role === role),
+        bucketing
+      ),
+    })),
+    revenue: bucketize(eventsSince(PLATFORM_REVENUE, bucketing), bucketing),
+    enrollments: bucketize(
+      eventsSince(PLATFORM_ENROLLMENTS, bucketing),
       bucketing
     ),
-  }));
+  };
 }
