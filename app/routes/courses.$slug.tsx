@@ -52,7 +52,7 @@ import { calculatePppPrice, getCountryTierInfo } from "~/lib/ppp";
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Course";
   return [
-    { title: `${title} — Cadence` },
+    { title: `${title} — Lantern` },
     { name: "description", content: loaderData?.course?.description ?? "" },
   ];
 }

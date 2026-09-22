@@ -25,7 +25,7 @@ import {
 
 export function meta() {
   return [
-    { title: "Analytics — Cadence" },
+    { title: "Analytics — Lantern" },
     { name: "description", content: "Course Performance across your courses" },
   ];
 }

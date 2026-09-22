@@ -14,7 +14,7 @@ import "./app.css";
 const darkModeScript = `
 (function() {
   try {
-    var theme = localStorage.getItem('cadence-theme');
+    var theme = localStorage.getItem('lantern-theme');
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     }

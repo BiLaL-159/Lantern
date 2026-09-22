@@ -100,7 +100,7 @@ const courseEditorActionSchema = z.discriminatedUnion("intent", [
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Edit Course";
   return [
-    { title: `Edit: ${title} — Cadence` },
+    { title: `Edit: ${title} — Lantern` },
     { name: "description", content: `Edit course: ${title}` },
   ];
 }

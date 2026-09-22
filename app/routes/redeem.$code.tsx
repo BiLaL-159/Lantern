@@ -28,7 +28,7 @@ const redeemActionSchema = z.object({
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Redeem Coupon";
   return [
-    { title: `Redeem: ${title} — Cadence` },
+    { title: `Redeem: ${title} — Lantern` },
     { name: "description", content: `Redeem your coupon for ${title}` },
   ];
 }

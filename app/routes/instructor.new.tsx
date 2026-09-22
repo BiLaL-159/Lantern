@@ -33,7 +33,7 @@ const newCourseSchema = z.object({
 
 export function meta() {
   return [
-    { title: "New Course — Cadence" },
+    { title: "New Course — Lantern" },
     { name: "description", content: "Create a new course" },
   ];
 }

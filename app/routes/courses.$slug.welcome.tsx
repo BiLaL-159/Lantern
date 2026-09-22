@@ -11,7 +11,7 @@ import { data } from "react-router";
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Welcome";
   return [
-    { title: `Welcome to ${title} — Cadence` },
+    { title: `Welcome to ${title} — Lantern` },
     { name: "description", content: `You're enrolled in ${title}!` },
   ];
 }

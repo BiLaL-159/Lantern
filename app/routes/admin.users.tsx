@@ -37,7 +37,7 @@ const adminUserActionSchema = z.discriminatedUnion("intent", [
 
 export function meta() {
   return [
-    { title: "Manage Users — Cadence" },
+    { title: "Manage Users — Lantern" },
     { name: "description", content: "Manage platform users" },
   ];
 }

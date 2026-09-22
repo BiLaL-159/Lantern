@@ -38,7 +38,7 @@ const adminCategoryActionSchema = z.discriminatedUnion("intent", [
 
 export function meta() {
   return [
-    { title: "Manage Categories — Cadence" },
+    { title: "Manage Categories — Lantern" },
     { name: "description", content: "Manage course categories" },
   ];
 }

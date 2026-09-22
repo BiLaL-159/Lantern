@@ -49,7 +49,7 @@ const purchaseActionSchema = z.discriminatedUnion("intent", [
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Purchase";
   return [
-    { title: `Confirm Purchase: ${title} — Cadence` },
+    { title: `Confirm Purchase: ${title} — Lantern` },
     { name: "description", content: `Confirm your enrollment in ${title}` },
   ];
 }

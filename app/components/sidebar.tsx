@@ -144,7 +144,7 @@ export function Sidebar({
     setIsDark(next);
     document.documentElement.classList.toggle("dark", next);
     try {
-      localStorage.setItem("cadence-theme", next ? "dark" : "light");
+      localStorage.setItem("lantern-theme", next ? "dark" : "light");
     } catch {}
   }
 
@@ -152,7 +152,7 @@ export function Sidebar({
     <aside className="flex h-screen w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center border-b border-sidebar-border px-4">
         <NavLink to="/" className="text-lg font-bold tracking-tight">
-          Cadence
+          Lantern
         </NavLink>
       </div>
 

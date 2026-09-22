@@ -76,7 +76,7 @@ const markCompleteSchema = z.object({
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.lesson?.title ?? "Lesson";
   const courseTitle = loaderData?.course?.title ?? "Course";
-  return [{ title: `${title} — ${courseTitle} — Cadence` }];
+  return [{ title: `${title} — ${courseTitle} — Lantern` }];
 }
 
 type FlatLesson = {
@@ -412,7 +412,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   throw data("Invalid action", { status: 400 });
 }
 
-const AUTOPLAY_KEY = "cadence-autoplay";
+const AUTOPLAY_KEY = "lantern-autoplay";
 
 function useAutoplay() {
   const [enabled, setEnabled] = useState(false);

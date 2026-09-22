@@ -36,7 +36,7 @@ const adminCourseActionSchema = z.discriminatedUnion("intent", [
 
 export function meta() {
   return [
-    { title: "Manage Courses — Cadence" },
+    { title: "Manage Courses — Lantern" },
     { name: "description", content: "Manage all platform courses" },
   ];
 }
