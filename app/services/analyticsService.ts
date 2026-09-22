@@ -291,6 +291,7 @@ function summarizeCourses(where: SQL | undefined) {
       courseId: courses.id,
       title: courses.title,
       status: courses.status,
+      instructorId: courses.instructorId,
       instructorName: users.name,
       revenue,
       enrollments: perCourse(enrollments, enrollments.courseId, sql`count(*)`),
@@ -345,7 +346,7 @@ function sortCourseSummaries(rows: CourseSummary[], sort: CourseSort) {
 function toCourseSummary(
   row: ReturnType<typeof summarizeCourses>[number]
 ): CourseSummary {
-  const { completed, ratingSum, ...rest } = row;
+  const { completed, ratingSum, instructorId, ...rest } = row;
   return {
     ...rest,
     completionRate: percent(completed, row.enrollments),
@@ -704,4 +705,69 @@ export function getPlatformTrends(
       bucketing
     ),
   };
+}
+
+// ─── Instructor summaries ───
+
+export type InstructorSummary = {
+  instructorId: number;
+  name: string;
+  /** Courses they own, whatever the status. */
+  courses: number;
+  /** Enrollments across those courses. */
+  students: number;
+  /** Sum of price paid across those courses' purchases, in cents. */
+  revenue: number;
+  /** Mean over every rating on their courses, or null with no ratings. */
+  averageRating: number | null;
+  ratingCount: number;
+};
+
+/**
+ * One row per instructor for admins, highest revenue first then name.
+ * The list is every user with the instructor role, so someone who has not
+ * published anything yet still appears, with zeros — the table is meant to
+ * be the whole roster, not only the people with sales.
+ *
+ * averageRating is the mean over all ratings on the instructor's courses,
+ * not the mean of per-course means, so a course with one 1-star rating
+ * cannot weigh as much as a course with fifty 5-star ones.
+ */
+export function getInstructorSummaries(): InstructorSummary[] {
+  const owned = new Map<number, ReturnType<typeof summarizeCourses>>();
+  for (const course of summarizeCourses(undefined)) {
+    const rows = owned.get(course.instructorId) ?? [];
+    rows.push(course);
+    owned.set(course.instructorId, rows);
+  }
+
+  const instructors = db
+    .select({ instructorId: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.role, UserRole.Instructor))
+    .all();
+
+  const total = (
+    rows: ReturnType<typeof summarizeCourses>,
+    of: (row: ReturnType<typeof summarizeCourses>[number]) => number
+  ) => rows.reduce((sum, row) => sum + of(row), 0);
+
+  return instructors
+    .map(({ instructorId, name }) => {
+      const rows = owned.get(instructorId) ?? [];
+      const ratingCount = total(rows, (row) => row.ratingCount);
+      return {
+        instructorId,
+        name,
+        courses: rows.length,
+        students: total(rows, (row) => row.enrollments),
+        revenue: total(rows, (row) => row.revenue),
+        averageRating:
+          ratingCount === 0
+            ? null
+            : total(rows, (row) => row.ratingSum) / ratingCount,
+        ratingCount,
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name));
 }
