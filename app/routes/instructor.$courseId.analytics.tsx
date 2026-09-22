@@ -6,6 +6,7 @@ import {
   getCourseReach,
   getCourseRevenueTrend,
   getCourseEnrollmentTrend,
+  getCourseProgress,
   trendBucketFor,
 } from "~/services/analyticsService";
 import { formatUsd, formatUsdCompact } from "~/lib/utils";
@@ -18,11 +19,13 @@ import {
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { TrendChart } from "~/components/trend-chart";
+import { DropOffFunnel } from "~/components/drop-off-funnel";
 import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  CheckCircle,
   DollarSign,
   Users,
 } from "lucide-react";
@@ -47,6 +50,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
   const sales = getCourseSales(course.id);
   const reach = getCourseReach(course.id);
+  const progress = getCourseProgress(course.id);
   const trends = {
     window,
     bucket: trendBucketFor(window),
@@ -54,17 +58,19 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     enrollments: getCourseEnrollmentTrend(course.id, window, now),
   };
 
-  return { course, sales, reach, trends };
+  return { course, sales, reach, progress, trends };
 }
 
 function SnapshotTile({
   icon: Icon,
   label,
   value,
+  detail,
 }: {
   icon: typeof DollarSign;
   label: string;
   value: string;
+  detail?: string;
 }) {
   return (
     <Card>
@@ -75,6 +81,7 @@ function SnapshotTile({
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold">{value}</p>
+          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
         </div>
       </CardContent>
     </Card>
@@ -84,7 +91,7 @@ function SnapshotTile({
 export default function InstructorCourseAnalytics({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, sales, reach, trends } = loaderData;
+  const { course, sales, reach, progress, trends } = loaderData;
   const hasData = sales.purchases > 0 || reach.enrollments > 0;
 
   return (
@@ -127,7 +134,7 @@ export default function InstructorCourseAnalytics({
 
       {hasData ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <SnapshotTile
               icon={DollarSign}
               label="Revenue"
@@ -137,6 +144,12 @@ export default function InstructorCourseAnalytics({
               icon={Users}
               label="Enrollments"
               value={reach.enrollments.toLocaleString("en-US")}
+            />
+            <SnapshotTile
+              icon={CheckCircle}
+              label="Completion rate"
+              value={`${progress.completionRate}%`}
+              detail={`${progress.completed.toLocaleString("en-US")} of ${progress.enrollments.toLocaleString("en-US")} enrolled`}
             />
           </div>
 
@@ -187,6 +200,31 @@ export default function InstructorCourseAnalytics({
                 </CardContent>
               </Card>
             </div>
+          </section>
+
+          {/* Progress */}
+          <section className="mt-10">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">Progress</h2>
+              <p className="text-sm text-muted-foreground">
+                Where students stop
+              </p>
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Drop-off</CardTitle>
+                <CardDescription>
+                  Share of all enrolled students who completed each lesson, in
+                  course order
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DropOffFunnel
+                  steps={progress.dropOff}
+                  enrolled={progress.enrollments}
+                />
+              </CardContent>
+            </Card>
           </section>
         </>
       ) : (
