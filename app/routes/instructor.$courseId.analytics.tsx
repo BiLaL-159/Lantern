@@ -11,7 +11,12 @@ import {
   getCourseSentiment,
   trendBucketFor,
 } from "~/services/analyticsService";
-import { formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
+import {
+  formatCount,
+  formatRating,
+  formatUsd,
+  formatUsdCompact,
+} from "~/lib/utils";
 import {
   Card,
   CardContent,
@@ -262,11 +267,7 @@ export default function InstructorCourseAnalytics({
               <SnapshotTile
                 icon={Star}
                 label="Average rating"
-                value={
-                  sentiment.average === null
-                    ? "—"
-                    : sentiment.average.toFixed(1)
-                }
+                value={formatRating(sentiment.average)}
                 detail={
                   sentiment.count === 0
                     ? "No ratings yet"

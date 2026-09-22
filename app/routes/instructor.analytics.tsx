@@ -3,11 +3,12 @@ import type { Route } from "./+types/instructor.analytics";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { getInstructorRollup } from "~/services/analyticsService";
-import { CourseStatus, UserRole } from "~/db/schema";
-import { formatCount, formatUsd } from "~/lib/utils";
+import { UserRole } from "~/db/schema";
+import { formatCount, formatRating, formatUsd } from "~/lib/utils";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { SnapshotTile } from "~/components/snapshot-tile";
+import { CourseStatusBadge } from "~/components/course-status-badge";
 import {
   AlertTriangle,
   BarChart3,
@@ -42,34 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return getInstructorRollup(user.id);
 }
 
-function statusBadge(status: CourseStatus) {
-  switch (status) {
-    case CourseStatus.Published:
-      return (
-        <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
-          Published
-        </span>
-      );
-    case CourseStatus.Draft:
-      return (
-        <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-          Draft
-        </span>
-      );
-    case CourseStatus.Archived:
-      return (
-        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 dark:bg-gray-900/30 dark:text-gray-400">
-          Archived
-        </span>
-      );
-  }
-}
-
-function formatRating(average: number | null) {
-  return average === null ? "—" : average.toFixed(1);
-}
-
-const TH =
+const headerCell =
   "px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground";
 
 export default function InstructorAnalytics({
@@ -100,8 +74,8 @@ export default function InstructorAnalytics({
           <CardContent className="py-8 text-center">
             <BarChart3 className="mx-auto mb-3 size-8 text-muted-foreground/50" />
             <p className="text-muted-foreground">
-              No courses yet. Numbers will appear here once you create a
-              course and students start joining.
+              No courses yet. Numbers will appear here once you create a course
+              and students start joining.
             </p>
             <Link to="/instructor/new" className="mt-4 inline-block">
               <Button>Create Course</Button>
@@ -157,11 +131,15 @@ export default function InstructorAnalytics({
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
-                        <th className={`${TH} text-left`}>Course</th>
-                        <th className={`${TH} text-right`}>Revenue</th>
-                        <th className={`${TH} text-right`}>Enrollments</th>
-                        <th className={`${TH} text-right`}>Completion</th>
-                        <th className={`${TH} text-right`}>Rating</th>
+                        <th className={`${headerCell} text-left`}>Course</th>
+                        <th className={`${headerCell} text-right`}>Revenue</th>
+                        <th className={`${headerCell} text-right`}>
+                          Enrollments
+                        </th>
+                        <th className={`${headerCell} text-right`}>
+                          Completion
+                        </th>
+                        <th className={`${headerCell} text-right`}>Rating</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -178,7 +156,7 @@ export default function InstructorAnalytics({
                               >
                                 {course.title}
                               </Link>
-                              {statusBadge(course.status)}
+                              <CourseStatusBadge status={course.status} />
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right text-sm tabular-nums">
