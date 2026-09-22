@@ -33,6 +33,14 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * Format a count of enrollments with its noun: "1 enrollment", "12
+ * enrollments" — for the enrollment Trend's tooltip.
+ */
+export function formatEnrollments(value: number): string {
+  return `${formatCount(value)} ${value === 1 ? "enrollment" : "enrollments"}`;
+}
+
+/**
  * Format an average rating to one decimal, or an em dash when there are
  * no ratings (average is null).
  */
@@ -101,4 +109,19 @@ export function formatDuration(
     return `${mStr}m 00s`;
   }
   return `${mStr}m`;
+}
+
+/**
+ * A search string with one param set and the rest of the current ones
+ * kept, so a control that owns one param doesn't clear the others — the
+ * Window picker and the top-courses sort share a URL.
+ */
+export function withSearchParam(
+  current: URLSearchParams,
+  key: string,
+  value: string
+): string {
+  const next = new URLSearchParams(current);
+  next.set(key, value);
+  return `?${next}`;
 }
