@@ -1,4 +1,5 @@
-import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn, AnySQLiteTable } from "drizzle-orm/sqlite-core";
 import { db } from "~/db";
 import {
   purchases,
@@ -10,6 +11,9 @@ import {
   coupons,
   courseRatings,
   lessonComments,
+  courses,
+  users,
+  CourseStatus,
 } from "~/db/schema";
 
 // ─── Analytics Service ───
@@ -237,6 +241,191 @@ export function getCourseSentiment(courseId: number) {
     distribution,
     comments: commentRow?.comments ?? 0,
   };
+}
+
+// ─── Course summaries ───
+
+export type CourseSummary = {
+  courseId: number;
+  title: string;
+  status: CourseStatus;
+  instructorName: string;
+  /** Sum of price paid across the course's purchases, in cents. */
+  revenue: number;
+  enrollments: number;
+  /** Completed enrollments ÷ all enrollments, as a whole-number percentage. */
+  completionRate: number;
+  /** Mean rating, or null with no ratings. */
+  averageRating: number | null;
+  ratingCount: number;
+};
+
+// One row per course with the same all-time figures the per-course
+// aggregates report, for tables that compare courses. Each metric is a
+// correlated subquery so a course with nothing to count still gets a row.
+// ratingSum comes back so callers can average over ratings, not courses.
+//
+// The subqueries are built with the query builder rather than written as
+// raw sql`` so that the outer courses.id is rendered table-qualified —
+// inside a single-table select drizzle would otherwise emit a bare "id",
+// which SQLite resolves to the inner table.
+function summarizeCourses(where: SQL | undefined) {
+  const perCourse = <T extends AnySQLiteTable>(
+    table: T,
+    courseId: AnySQLiteColumn,
+    value: SQL<number>
+  ) =>
+    sql<number>`${db
+      .select({ value })
+      .from(table)
+      .where(eq(courseId, courses.id))}`;
+
+  const revenue = perCourse(
+    purchases,
+    purchases.courseId,
+    sql`coalesce(sum(${purchases.pricePaid}), 0)`
+  );
+  return db
+    .select({
+      courseId: courses.id,
+      title: courses.title,
+      status: courses.status,
+      instructorName: users.name,
+      revenue,
+      enrollments: perCourse(enrollments, enrollments.courseId, sql`count(*)`),
+      completed: perCourse(
+        enrollments,
+        enrollments.courseId,
+        sql`count(${enrollments.completedAt})`
+      ),
+      ratingSum: perCourse(
+        courseRatings,
+        courseRatings.courseId,
+        sql`coalesce(sum(${courseRatings.rating}), 0)`
+      ),
+      ratingCount: perCourse(
+        courseRatings,
+        courseRatings.courseId,
+        sql`count(*)`
+      ),
+    })
+    .from(courses)
+    .innerJoin(users, eq(users.id, courses.instructorId))
+    .where(where)
+    .orderBy(courses.title)
+    .all();
+}
+
+export const COURSE_SORTS = ["revenue", "enrollments", "rating"] as const;
+
+export type CourseSort = (typeof COURSE_SORTS)[number];
+
+// The value each sort key ranks by; null (no ratings) sorts last.
+const SORT_VALUE: Record<CourseSort, (c: CourseSummary) => number | null> = {
+  revenue: (c) => c.revenue,
+  enrollments: (c) => c.enrollments,
+  rating: (c) => c.averageRating,
+};
+
+// Descending by the sort key, unrated courses last, ties by title
+// (the order summarizeCourses already returns, so the sort is stable).
+function sortCourseSummaries(rows: CourseSummary[], sort: CourseSort) {
+  const value = SORT_VALUE[sort];
+  return [...rows].sort((a, b) => {
+    const av = value(a);
+    const bv = value(b);
+    if (av === bv) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return bv - av;
+  });
+}
+
+function toCourseSummary(
+  row: ReturnType<typeof summarizeCourses>[number]
+): CourseSummary {
+  const { completed, ratingSum, ...rest } = row;
+  return {
+    ...rest,
+    completionRate: percent(completed, row.enrollments),
+    averageRating: row.ratingCount === 0 ? null : ratingSum / row.ratingCount,
+  };
+}
+
+/**
+ * Rollup across every course an instructor owns, whatever its status.
+ * Draft and archived courses keep their rows and historical numbers;
+ * only published courses count as active. averageRating is the mean over
+ * all ratings on the instructor's courses — not the mean of per-course
+ * means — and null when there are none. Courses are ordered by revenue,
+ * highest first, then title.
+ */
+export function getInstructorRollup(instructorId: number) {
+  const rows = summarizeCourses(eq(courses.instructorId, instructorId));
+
+  const ratingCount = rows.reduce((sum, r) => sum + r.ratingCount, 0);
+  const ratingSum = rows.reduce((sum, r) => sum + r.ratingSum, 0);
+
+  return {
+    totals: {
+      revenue: rows.reduce((sum, r) => sum + r.revenue, 0),
+      enrollments: rows.reduce((sum, r) => sum + r.enrollments, 0),
+      activeCourses: rows.filter((r) => r.status === CourseStatus.Published)
+        .length,
+      averageRating: ratingCount === 0 ? null : ratingSum / ratingCount,
+      ratingCount,
+    },
+    courses: sortCourseSummaries(rows.map(toCourseSummary), "revenue"),
+  };
+}
+
+// ─── Platform Health ───
+
+/**
+ * All-time platform totals for admins. revenue and enrollments include
+ * archived courses so history is preserved; activeCourses counts only
+ * published ones; courses is every course whatever its status.
+ */
+export function getPlatformTotals() {
+  const money = db
+    .select({ revenue: sql<number>`coalesce(sum(${purchases.pricePaid}), 0)` })
+    .from(purchases)
+    .get();
+  const people = db
+    .select({ users: sql<number>`count(*)` })
+    .from(users)
+    .get();
+  const learning = db
+    .select({ enrollments: sql<number>`count(*)` })
+    .from(enrollments)
+    .get();
+  const catalogue = db
+    .select({
+      courses: sql<number>`count(*)`,
+      active: sql<number>`coalesce(sum(${courses.status} = ${CourseStatus.Published}), 0)`,
+    })
+    .from(courses)
+    .get();
+
+  return {
+    revenue: money?.revenue ?? 0,
+    users: people?.users ?? 0,
+    enrollments: learning?.enrollments ?? 0,
+    activeCourses: catalogue?.active ?? 0,
+    courses: catalogue?.courses ?? 0,
+  };
+}
+
+/**
+ * Every course on the platform, whatever its status, as summary rows
+ * sorted server-side by the given key: highest first, unrated courses
+ * last under "rating", ties by title.
+ */
+export function getTopCourses(sort: CourseSort): CourseSummary[] {
+  return sortCourseSummaries(
+    summarizeCourses(undefined).map(toCourseSummary),
+    sort
+  );
 }
 
 // ─── Trends ───
