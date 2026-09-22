@@ -264,7 +264,8 @@ export type CourseSummary = {
 // One row per course with the same all-time figures the per-course
 // aggregates report, for tables that compare courses. Each metric is a
 // correlated subquery so a course with nothing to count still gets a row.
-// ratingSum comes back so callers can average over ratings, not courses.
+// ratingSum comes back so callers can average over ratings, not courses,
+// and instructorId so a caller can group the rows by owner.
 //
 // The subqueries are built with the query builder rather than written as
 // raw sql`` so that the outer courses.id is rendered table-qualified —
@@ -291,6 +292,7 @@ function summarizeCourses(where: SQL | undefined) {
       courseId: courses.id,
       title: courses.title,
       status: courses.status,
+      instructorId: courses.instructorId,
       instructorName: users.name,
       revenue,
       enrollments: perCourse(enrollments, enrollments.courseId, sql`count(*)`),
@@ -315,6 +317,32 @@ function summarizeCourses(where: SQL | undefined) {
     .where(where)
     .orderBy(courses.title)
     .all();
+}
+
+type CourseRow = ReturnType<typeof summarizeCourses>[number];
+
+/**
+ * The all-time figures a set of courses add up to. averageRating is the
+ * mean over every rating on them — not the mean of per-course means, so a
+ * course with one 1-star rating cannot weigh as much as one with fifty
+ * 5-star ones — and null when there are none. Only published courses
+ * count as active; draft and archived ones keep their revenue and
+ * enrollments.
+ */
+function totalsFor(rows: CourseRow[]) {
+  const sumBy = (of: (row: CourseRow) => number) =>
+    rows.reduce((sum, row) => sum + of(row), 0);
+  const ratingCount = sumBy((row) => row.ratingCount);
+
+  return {
+    revenue: sumBy((row) => row.revenue),
+    enrollments: sumBy((row) => row.enrollments),
+    activeCourses: rows.filter((row) => row.status === CourseStatus.Published)
+      .length,
+    averageRating:
+      ratingCount === 0 ? null : sumBy((row) => row.ratingSum) / ratingCount,
+    ratingCount,
+  };
 }
 
 export const COURSE_SORTS = ["revenue", "enrollments", "rating"] as const;
@@ -342,10 +370,8 @@ function sortCourseSummaries(rows: CourseSummary[], sort: CourseSort) {
   });
 }
 
-function toCourseSummary(
-  row: ReturnType<typeof summarizeCourses>[number]
-): CourseSummary {
-  const { completed, ratingSum, ...rest } = row;
+function toCourseSummary(row: CourseRow): CourseSummary {
+  const { completed, ratingSum, instructorId, ...rest } = row;
   return {
     ...rest,
     completionRate: percent(completed, row.enrollments),
@@ -364,18 +390,8 @@ function toCourseSummary(
 export function getInstructorRollup(instructorId: number) {
   const rows = summarizeCourses(eq(courses.instructorId, instructorId));
 
-  const ratingCount = rows.reduce((sum, r) => sum + r.ratingCount, 0);
-  const ratingSum = rows.reduce((sum, r) => sum + r.ratingSum, 0);
-
   return {
-    totals: {
-      revenue: rows.reduce((sum, r) => sum + r.revenue, 0),
-      enrollments: rows.reduce((sum, r) => sum + r.enrollments, 0),
-      activeCourses: rows.filter((r) => r.status === CourseStatus.Published)
-        .length,
-      averageRating: ratingCount === 0 ? null : ratingSum / ratingCount,
-      ratingCount,
-    },
+    totals: totalsFor(rows),
     courses: sortCourseSummaries(rows.map(toCourseSummary), "revenue"),
   };
 }
@@ -427,6 +443,76 @@ export function getTopCourses(sort: CourseSort): CourseSummary[] {
     summarizeCourses(undefined).map(toCourseSummary),
     sort
   );
+}
+
+// ─── Instructor summaries ───
+
+export type InstructorSummary = {
+  instructorId: number;
+  name: string;
+  /** Courses they own, whatever its status. */
+  courses: number;
+  /** Enrollments across those courses. */
+  students: number;
+  /** Sum of price paid across those courses' purchases, in cents. */
+  revenue: number;
+  /** Mean over every rating on their courses, or null with no ratings. */
+  averageRating: number | null;
+  ratingCount: number;
+};
+
+/**
+ * One row per instructor for admins, highest revenue first then name.
+ *
+ * The roster is everyone with the instructor role, so someone who has not
+ * published anything yet still appears with zeros, plus anyone who owns a
+ * course whatever their role — an admin's course, or the back catalogue
+ * of an instructor since made something else, would otherwise drop out of
+ * a table sitting directly under the platform's revenue total.
+ *
+ * Draft and archived courses count towards every figure here: the table
+ * answers who has carried the platform, not what is on sale today.
+ */
+export function getInstructorSummaries(): InstructorSummary[] {
+  const owned = new Map<number, CourseRow[]>();
+  for (const course of summarizeCourses(undefined)) {
+    const rows = owned.get(course.instructorId) ?? [];
+    rows.push(course);
+    owned.set(course.instructorId, rows);
+  }
+
+  const roster = new Map<number, string>(
+    db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(eq(users.role, UserRole.Instructor))
+      .all()
+      .map((instructor) => [instructor.id, instructor.name])
+  );
+  // Course owners who are not on the roster by role: summarizeCourses has
+  // already joined their name, so they cost no extra query.
+  for (const [instructorId, rows] of owned) {
+    if (!roster.has(instructorId)) {
+      roster.set(instructorId, rows[0].instructorName);
+    }
+  }
+
+  return [...roster]
+    .map(([instructorId, name]) => {
+      const rows = owned.get(instructorId) ?? [];
+      const { revenue, enrollments, averageRating, ratingCount } =
+        totalsFor(rows);
+      return {
+        instructorId,
+        name,
+        courses: rows.length,
+        students: enrollments,
+        revenue,
+        averageRating,
+        ratingCount,
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name));
 }
 
 // ─── Trends ───

@@ -9,6 +9,7 @@ import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import {
   COURSE_SORTS,
+  getInstructorSummaries,
   getPlatformTotals,
   getPlatformTrends,
   getTopCourses,
@@ -92,6 +93,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     totals: getPlatformTotals(),
     sort,
     courses: getTopCourses(sort),
+    instructors: getInstructorSummaries(),
     trends: {
       window: trendWindow,
       bucket: trendBucketFor(trendWindow),
@@ -146,7 +148,7 @@ function SortHeader({
 }
 
 export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
-  const { totals, sort, courses, trends } = loaderData;
+  const { totals, sort, courses, instructors, trends } = loaderData;
 
   const newUsers: TrendSeries[] = trends.newUsers.map(({ role, points }) => ({
     key: role,
@@ -318,6 +320,69 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
                         <RatingCell
                           average={course.averageRating}
                           count={course.ratingCount}
+                        />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      <section className="mt-10">
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold">Instructors</h2>
+          <p className="text-sm text-muted-foreground">
+            Everyone who teaches here, highest revenue first. Rating is the mean
+            over every rating on their courses.
+          </p>
+        </div>
+        {instructors.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <Users className="mx-auto mb-3 size-8 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No instructors yet.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className={cn(headerCell, "text-left")}>
+                        Instructor
+                      </th>
+                      <th className={cn(headerCell, "text-right")}>Courses</th>
+                      <th className={cn(headerCell, "text-right")}>Students</th>
+                      <th className={cn(headerCell, "text-right")}>Revenue</th>
+                      <th className={cn(headerCell, "text-right")}>Rating</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {instructors.map((instructor) => (
+                      <tr
+                        key={instructor.instructorId}
+                        className="border-b border-border last:border-0"
+                      >
+                        <td className="px-4 py-3 text-sm font-medium">
+                          {instructor.name}
+                        </td>
+                        <td className={numberCell}>
+                          {formatCount(instructor.courses)}
+                        </td>
+                        <td className={numberCell}>
+                          {formatCount(instructor.students)}
+                        </td>
+                        <td className={numberCell}>
+                          {formatUsd(instructor.revenue)}
+                        </td>
+                        <RatingCell
+                          average={instructor.averageRating}
+                          count={instructor.ratingCount}
                         />
                       </tr>
                     ))}
