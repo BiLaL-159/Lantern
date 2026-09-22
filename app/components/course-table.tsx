@@ -4,8 +4,9 @@ import { cn, formatCount, formatRating } from "~/lib/utils";
 import { CourseStatusBadge } from "~/components/course-status-badge";
 
 // ─── Course table pieces ───
-// Cells shared by the tables that list CourseSummary rows (instructor
-// rollup, Platform Health) so they read as one system.
+// Cells shared by the analytics tables — the instructor rollup and
+// Platform Health's course and instructor tables — so they read as one
+// system.
 
 export const headerCell =
   "px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground";
