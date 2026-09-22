@@ -1,4 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#1a1a1a"/>
-  <text x="16" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="white" text-anchor="middle">L</text>
+  <rect width="32" height="32" rx="8" fill="#1a1a1a" />
+  <path d="M13.6 8.2a2.4 2.4 0 0 1 4.8 0" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" />
+  <path d="M9.6 11.2h12.8l-2.2-3.2h-8.4z" fill="#ffffff" />
+  <rect x="11.4" y="11.2" width="9.2" height="10.6" fill="#fbbf24" />
+  <rect x="10.4" y="11.2" width="1.5" height="10.6" fill="#ffffff" />
+  <rect x="20.1" y="11.2" width="1.5" height="10.6" fill="#ffffff" />
+  <path d="M16 13.9c1.35 1.35 2 2.35 2 3.25a2 2 0 0 1-4 0c0-.9.65-1.9 2-3.25z" fill="#fffbeb" />
+  <path d="M9.6 21.8h12.8l-2.2 3.2h-8.4z" fill="#ffffff" />
 </svg>
