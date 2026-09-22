@@ -13,7 +13,7 @@ SET `completed_at` = (
 		AND `lp`.`user_id` = `enrollments`.`user_id`
 		AND `lp`.`status` = 'completed'
 )
-WHERE `completed_at` IS NULL
+WHERE `enrollments`.`completed_at` IS NULL
 	AND (
 		SELECT count(*)
 		FROM `lessons` `l`
