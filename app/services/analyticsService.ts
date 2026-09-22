@@ -7,6 +7,7 @@ import {
   lessons,
   lessonProgress,
   LessonProgressStatus,
+  coupons,
 } from "~/db/schema";
 
 // ─── Analytics Service ───
@@ -18,37 +19,78 @@ import {
 
 /**
  * All-time sales for a course: revenue is the sum of every purchase's price
- * paid, in cents; purchases is the number of purchase rows. Team purchases
- * are a single purchase row created when the team buys, so they count once
- * at purchase time — redeeming seats adds nothing.
+ * paid, in cents; purchases is the number of purchase rows, split into
+ * individual and team. A team purchase is a purchase row with seats
+ * (coupons) attached; it is a single row created when the team buys, so
+ * it counts once at purchase time — redeeming seats adds nothing.
  */
 export function getCourseSales(courseId: number) {
+  const isTeam = sql<number>`exists (select 1 from ${coupons} where ${coupons.purchaseId} = ${purchases.id})`;
   const row = db
     .select({
       revenue: sql<number>`coalesce(sum(${purchases.pricePaid}), 0)`,
       purchases: sql<number>`count(*)`,
+      teamPurchases: sql<number>`coalesce(sum(${isTeam}), 0)`,
     })
     .from(purchases)
     .where(eq(purchases.courseId, courseId))
     .get();
 
-  return { revenue: row?.revenue ?? 0, purchases: row?.purchases ?? 0 };
+  const total = row?.purchases ?? 0;
+  const teamPurchases = row?.teamPurchases ?? 0;
+  return {
+    revenue: row?.revenue ?? 0,
+    purchases: total,
+    individualPurchases: total - teamPurchases,
+    teamPurchases,
+  };
 }
 
 // ─── Reach ───
 
 /**
- * All-time enrollment count for a course, however the enrollment was created
- * (individual purchase, redeemed team seat, or manual).
+ * All-time reach for a course. enrollments counts every enrollment however
+ * it was created (individual purchase, redeemed team seat, or manual).
+ * notStarted is enrolled students with no lesson-progress row for any
+ * lesson in the course — in progress counts as started. seatsSold is the
+ * coupons issued by the course's team purchases; seatsRedeemed those with
+ * a redeemer.
  */
 export function getCourseReach(courseId: number) {
+  const hasStarted = sql<number>`exists (
+    select 1 from ${lessonProgress}
+    inner join ${lessons} on ${lessons.id} = ${lessonProgress.lessonId}
+    inner join ${modules} on ${modules.id} = ${lessons.moduleId}
+    where ${lessonProgress.userId} = ${enrollments.userId}
+      and ${modules.courseId} = ${enrollments.courseId}
+  )`;
   const row = db
-    .select({ enrollments: sql<number>`count(*)` })
+    .select({
+      enrollments: sql<number>`count(*)`,
+      started: sql<number>`coalesce(sum(${hasStarted}), 0)`,
+    })
     .from(enrollments)
     .where(eq(enrollments.courseId, courseId))
     .get();
+  const total = row?.enrollments ?? 0;
+  const notStarted = total - (row?.started ?? 0);
 
-  return { enrollments: row?.enrollments ?? 0 };
+  const seats = db
+    .select({
+      sold: sql<number>`count(*)`,
+      redeemed: sql<number>`count(${coupons.redeemedByUserId})`,
+    })
+    .from(coupons)
+    .where(eq(coupons.courseId, courseId))
+    .get();
+
+  return {
+    enrollments: total,
+    notStarted,
+    notStartedPercent: percent(notStarted, total),
+    seatsSold: seats?.sold ?? 0,
+    seatsRedeemed: seats?.redeemed ?? 0,
+  };
 }
 
 // ─── Progress ───
