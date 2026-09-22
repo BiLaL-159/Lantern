@@ -22,6 +22,7 @@ import {
   getPlatformTotals,
   getTopCourses,
   getPlatformTrends,
+  getInstructorSummaries,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -842,6 +843,119 @@ describe("analyticsService", () => {
         "Test Course",
         "archived",
         "draft",
+      ]);
+    });
+  });
+
+  describe("getInstructorSummaries", () => {
+    function makeInstructor(email: string) {
+      return testDb
+        .insert(schema.users)
+        .values({ name: email, email, role: schema.UserRole.Instructor })
+        .returning()
+        .get();
+    }
+
+    function rowFor(instructorId: number) {
+      return getInstructorSummaries().find(
+        (row) => row.instructorId === instructorId
+      )!;
+    }
+
+    it("averages an instructor's rating over all ratings, not over courses", () => {
+      const second = makeCourse("second");
+      const students = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      // Four 5-star ratings on one course and one 1-star on the other:
+      // the mean over ratings is 4.2, the mean of course means would be 3.
+      for (const student of students) {
+        upsertRating(student.id, base.course.id, 5);
+      }
+      upsertRating(students[0].id, second.id, 1);
+
+      const row = rowFor(base.instructor.id);
+
+      expect(row.averageRating).toBeCloseTo(4.2);
+      expect(row.ratingCount).toBe(5);
+    });
+
+    it("lists an instructor with no courses, with zeros", () => {
+      const nobody = makeInstructor("nobody@example.com");
+
+      expect(rowFor(nobody.id)).toEqual({
+        instructorId: nobody.id,
+        name: "nobody@example.com",
+        courses: 0,
+        students: 0,
+        revenue: 0,
+        averageRating: null,
+        ratingCount: 0,
+      });
+    });
+
+    it("totals courses, students and revenue per instructor, richest first", () => {
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      const nobody = makeInstructor("nobody@example.com");
+      const other = makeInstructor("other@example.com");
+      const theirs = testDb
+        .insert(schema.courses)
+        .values({
+          title: "theirs",
+          slug: "theirs",
+          description: "desc",
+          instructorId: other.id,
+          categoryId: base.category.id,
+          status: schema.CourseStatus.Published,
+        })
+        .returning()
+        .get();
+      const [a, b, c] = ["a", "b", "c"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+
+      // base.instructor: two courses, one of them archived — history counts.
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-01T00:00:00.000Z");
+      purchaseAt(b.id, archived.id, 10000, "2026-01-01T00:00:00.000Z");
+      enrollUser(a.id, base.course.id, false, false);
+      enrollUser(b.id, base.course.id, false, false);
+      enrollUser(b.id, archived.id, false, false);
+      upsertRating(a.id, base.course.id, 5);
+      upsertRating(b.id, base.course.id, 3);
+
+      // other: one course, and none of it may leak into the row above.
+      purchaseAt(c.id, theirs.id, 500, "2026-09-02T00:00:00.000Z");
+      enrollUser(c.id, theirs.id, false, false);
+      upsertRating(c.id, theirs.id, 1);
+
+      expect(getInstructorSummaries()).toEqual([
+        {
+          instructorId: base.instructor.id,
+          name: "Test Instructor",
+          courses: 2,
+          students: 3,
+          revenue: 14999,
+          averageRating: 4,
+          ratingCount: 2,
+        },
+        {
+          instructorId: other.id,
+          name: "other@example.com",
+          courses: 1,
+          students: 1,
+          revenue: 500,
+          averageRating: 1,
+          ratingCount: 1,
+        },
+        {
+          instructorId: nobody.id,
+          name: "nobody@example.com",
+          courses: 0,
+          students: 0,
+          revenue: 0,
+          averageRating: null,
+          ratingCount: 0,
+        },
       ]);
     });
   });
