@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
+import { and, eq } from "drizzle-orm";
 
 let testDb: ReturnType<typeof createTestDb>;
 let base: ReturnType<typeof seedBaseData>;
@@ -98,6 +99,166 @@ describe("progressService", () => {
       const progress = markLessonComplete(base.user.id, lessons[0].id);
 
       expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
+    });
+  });
+
+  describe("markLessonComplete — course completion", () => {
+    function enroll(userId: number, courseId: number) {
+      return testDb
+        .insert(schema.enrollments)
+        .values({ userId, courseId })
+        .returning()
+        .get();
+    }
+
+    function getEnrollment(userId: number, courseId: number) {
+      return testDb
+        .select()
+        .from(schema.enrollments)
+        .where(
+          and(
+            eq(schema.enrollments.userId, userId),
+            eq(schema.enrollments.courseId, courseId)
+          )
+        )
+        .get();
+    }
+
+    function createEmptyCourse(slug: string) {
+      return testDb
+        .insert(schema.courses)
+        .values({
+          title: `Course ${slug}`,
+          slug,
+          description: "No lessons",
+          instructorId: base.instructor.id,
+          categoryId: base.category.id,
+          status: schema.CourseStatus.Published,
+        })
+        .returning()
+        .get();
+    }
+
+    it("stamps the enrollment when the last lesson is completed", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBeNull();
+
+      markLessonComplete(base.user.id, lessons[1].id);
+      const enrollment = getEnrollment(base.user.id, base.course.id);
+      expect(enrollment!.completedAt).not.toBeNull();
+      expect(enrollment!.completedAt).toEqual(expect.any(String));
+    });
+
+    it("leaves the enrollment uncompleted when a non-last lesson is completed", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 3);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+      markLessonComplete(base.user.id, lessons[2].id);
+
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBeNull();
+    });
+
+    it("does not count in-progress lessons toward completion", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      enroll(base.user.id, base.course.id);
+
+      markLessonInProgress(base.user.id, lessons[0].id);
+      markLessonComplete(base.user.id, lessons[1].id);
+
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBeNull();
+    });
+
+    it("preserves the original completion time when the last lesson is completed again", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+      const first = getEnrollment(base.user.id, base.course.id)!.completedAt;
+
+      // Force a distinguishable timestamp for any later write
+      testDb
+        .update(schema.enrollments)
+        .set({ completedAt: "2000-01-01T00:00:00.000Z" })
+        .where(eq(schema.enrollments.userId, base.user.id))
+        .run();
+
+      markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(first).not.toBeNull();
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBe(
+        "2000-01-01T00:00:00.000Z"
+      );
+    });
+
+    it("records no completion for a user who is not enrolled", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+
+      const progress = markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(progress.status).toBe(schema.LessonProgressStatus.Completed);
+      expect(getEnrollment(base.user.id, base.course.id)).toBeUndefined();
+    });
+
+    it("leaves an enrollment in a zero-lesson course untouched when a lesson elsewhere is completed", () => {
+      const emptyCourse = createEmptyCourse("empty-course");
+      enroll(base.user.id, emptyCourse.id);
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).not.toBeNull();
+      expect(getEnrollment(base.user.id, emptyCourse.id)!.completedAt).toBeNull();
+    });
+
+    it("counts lessons across every module of the course", () => {
+      const m1 = createModuleWithLessons(base.course.id, "Module 1", 1, 2);
+      const m2 = createModuleWithLessons(base.course.id, "Module 2", 2, 1);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, m1.lessons[0].id);
+      markLessonComplete(base.user.id, m1.lessons[1].id);
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBeNull();
+
+      markLessonComplete(base.user.id, m2.lessons[0].id);
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).not.toBeNull();
+    });
+
+    it("keeps the completion when a lesson is added to the course afterwards", () => {
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      enroll(base.user.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+      const stamped = getEnrollment(base.user.id, base.course.id)!.completedAt;
+      expect(stamped).not.toBeNull();
+
+      createModuleWithLessons(base.course.id, "Module 2", 2, 1);
+
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).toBe(stamped);
+    });
+
+    it("does not touch other students' enrollments in the same course", () => {
+      const other = testDb
+        .insert(schema.users)
+        .values({
+          name: "Other Student",
+          email: "other@example.com",
+          role: schema.UserRole.Student,
+        })
+        .returning()
+        .get();
+      const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);
+      enroll(base.user.id, base.course.id);
+      enroll(other.id, base.course.id);
+
+      markLessonComplete(base.user.id, lessons[0].id);
+
+      expect(getEnrollment(base.user.id, base.course.id)!.completedAt).not.toBeNull();
+      expect(getEnrollment(other.id, base.course.id)!.completedAt).toBeNull();
     });
   });
 
