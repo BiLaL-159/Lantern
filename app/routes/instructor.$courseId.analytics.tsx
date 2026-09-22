@@ -13,6 +13,7 @@ import {
 } from "~/services/analyticsService";
 import {
   formatCount,
+  formatEnrollments,
   formatRating,
   formatUsd,
   formatUsdCompact,
@@ -25,7 +26,11 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { TrendChart } from "~/components/trend-chart";
+import {
+  TrendChart,
+  enrollmentSeries,
+  revenueSeries,
+} from "~/components/trend-chart";
 import { DropOffFunnel } from "~/components/drop-off-funnel";
 import { SnapshotTile } from "~/components/snapshot-tile";
 import { RatingDistribution } from "~/components/rating-distribution";
@@ -202,14 +207,7 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    series={[
-                      {
-                        key: "revenue",
-                        label: "Revenue",
-                        color: "var(--chart-1)",
-                        points: trends.revenue,
-                      },
-                    ]}
+                    series={[revenueSeries(trends.revenue)]}
                     bucket={trends.bucket}
                     formatValue={formatUsd}
                     formatTick={formatUsdCompact}
@@ -224,18 +222,9 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    series={[
-                      {
-                        key: "enrollments",
-                        label: "Enrollments",
-                        color: "var(--chart-2)",
-                        points: trends.enrollments,
-                      },
-                    ]}
+                    series={[enrollmentSeries(trends.enrollments)]}
                     bucket={trends.bucket}
-                    formatValue={(v) =>
-                      `${formatCount(v)} ${v === 1 ? "enrollment" : "enrollments"}`
-                    }
+                    formatValue={formatEnrollments}
                     formatTick={formatCount}
                     emptyMessage="No enrollments yet."
                   />

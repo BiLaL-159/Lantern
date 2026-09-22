@@ -26,6 +26,21 @@ export type TrendSeries = {
   points: TrendPoint[];
 };
 
+/** The Revenue series, in the colour both analytics pages draw it in. */
+export function revenueSeries(points: TrendPoint[]): TrendSeries {
+  return { key: "revenue", label: "Revenue", color: "var(--chart-1)", points };
+}
+
+/** The Enrollments series, in the colour both analytics pages draw it in. */
+export function enrollmentSeries(points: TrendPoint[]): TrendSeries {
+  return {
+    key: "enrollments",
+    label: "Enrollments",
+    color: "var(--chart-2)",
+    points,
+  };
+}
+
 const shortDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
