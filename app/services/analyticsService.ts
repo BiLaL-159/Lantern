@@ -178,19 +178,35 @@ function percent(numerator: number, denominator: number) {
 
 // ─── Trends ───
 
-export type TrendWindow = "30d" | "90d" | "all";
+export const TREND_WINDOWS = ["30d", "90d", "all"] as const;
+
+export type TrendWindow = (typeof TREND_WINDOWS)[number];
 
 export type TrendPoint = { bucketStart: string; value: number };
 
 export type TrendBucket = "day" | "week";
 
+// How each Window is reported: how many days back it reaches (null for
+// all-time) and the bucket size its Trend is bucketed in.
+const WINDOWS: Record<
+  TrendWindow,
+  { days: number | null; bucket: TrendBucket }
+> = {
+  "30d": { days: 30, bucket: "day" },
+  "90d": { days: 90, bucket: "week" },
+  all: { days: null, bucket: "week" },
+};
+
 /** The bucket size a Window's Trend is reported in. */
 export function trendBucketFor(window: TrendWindow): TrendBucket {
-  return window === "30d" ? "day" : "week";
+  return WINDOWS[window].bucket;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
+const BUCKET_MS: Record<TrendBucket, number> = {
+  day: DAY_MS,
+  week: 7 * DAY_MS,
+};
 
 function startOfUtcDay(date: Date): Date {
   return new Date(
@@ -205,39 +221,40 @@ function startOfUtcWeek(date: Date): Date {
   return new Date(day.getTime() - offset * DAY_MS);
 }
 
+function startOfBucket(date: Date, bucket: TrendBucket): Date {
+  return bucket === "day" ? startOfUtcDay(date) : startOfUtcWeek(date);
+}
+
 type Bucketing = { first: Date; last: Date; size: number };
 
 /**
- * The bucket grid for a Window. 30d is the last 30 days bucketed daily.
- * 90d and all-time are bucketed weekly, so every bucket is a whole week:
- * 90d starts from the week containing the day 90 days ago; all-time from
- * the week of the earliest event, or null when there are no events.
+ * The bucket grid for a Window. The grid runs up to today and is aligned
+ * to whole buckets, so its first bucket starts at the beginning of the day
+ * (30d) or the Monday of the week (90d) that contains the Window's first
+ * day, today counting as day one. All-time starts from the week of the
+ * earliest event, or is null when there are no events.
  */
 function bucketingFor(
   window: TrendWindow,
   now: Date,
   earliest: string | null
 ): Bucketing | null {
+  const { days, bucket } = WINDOWS[window];
   const today = startOfUtcDay(now);
-  if (window === "30d") {
-    return {
-      first: new Date(today.getTime() - 29 * DAY_MS),
-      last: today,
-      size: DAY_MS,
-    };
+
+  let firstDay: Date;
+  if (days !== null) {
+    firstDay = new Date(today.getTime() - (days - 1) * DAY_MS);
+  } else if (earliest !== null) {
+    firstDay = new Date(earliest);
+  } else {
+    return null;
   }
-  if (window === "90d") {
-    return {
-      first: startOfUtcWeek(new Date(today.getTime() - 89 * DAY_MS)),
-      last: startOfUtcWeek(today),
-      size: WEEK_MS,
-    };
-  }
-  if (earliest === null) return null;
+
   return {
-    first: startOfUtcWeek(new Date(earliest)),
-    last: startOfUtcWeek(today),
-    size: WEEK_MS,
+    first: startOfBucket(firstDay, bucket),
+    last: startOfBucket(today, bucket),
+    size: BUCKET_MS[bucket],
   };
 }
 
@@ -269,9 +286,10 @@ function bucketize(
 
 /**
  * Revenue Trend for a course: price paid, in cents, summed per bucket.
- * 30d is bucketed daily; 90d and all-time weekly. Bucket boundaries are
- * UTC; an event exactly on a boundary belongs to the bucket that starts
- * there. All-time is empty when the course has no purchases.
+ * 30d is bucketed daily; 90d and all-time weekly (see bucketingFor).
+ * Bucket boundaries are UTC; an event exactly on a boundary belongs to the
+ * bucket that starts there. All-time is empty when the course has no
+ * purchases.
  */
 export function getCourseRevenueTrend(
   courseId: number,

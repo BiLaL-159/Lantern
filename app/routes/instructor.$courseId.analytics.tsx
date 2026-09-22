@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link, isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.analytics";
 import { requireCourseAccess } from "~/lib/courseAccess";
@@ -9,7 +10,7 @@ import {
   getCourseProgress,
   trendBucketFor,
 } from "~/services/analyticsService";
-import { formatUsd, formatUsdCompact } from "~/lib/utils";
+import { formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
 import {
   Card,
   CardContent,
@@ -48,17 +49,17 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     notOwner: "You can only view analytics for your own courses.",
   });
 
-  const window = parseTrendWindow(new URL(request.url));
+  const trendWindow = parseTrendWindow(new URL(request.url));
   const now = new Date();
 
   const sales = getCourseSales(course.id);
   const reach = getCourseReach(course.id);
   const progress = getCourseProgress(course.id);
   const trends = {
-    window,
-    bucket: trendBucketFor(window),
-    revenue: getCourseRevenueTrend(course.id, window, now),
-    enrollments: getCourseEnrollmentTrend(course.id, window, now),
+    window: trendWindow,
+    bucket: trendBucketFor(trendWindow),
+    revenue: getCourseRevenueTrend(course.id, trendWindow, now),
+    enrollments: getCourseEnrollmentTrend(course.id, trendWindow, now),
   };
 
   return { course, sales, reach, progress, trends };
@@ -67,14 +68,19 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 function SectionHeading({
   title,
   subtitle,
+  action,
 }: {
   title: string;
   subtitle: string;
+  action?: ReactNode;
 }) {
   return (
-    <div className="mb-4">
-      <h2 className="text-xl font-semibold">{title}</h2>
-      <p className="text-sm text-muted-foreground">{subtitle}</p>
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h2 className="text-xl font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+      {action}
     </div>
   );
 }
@@ -165,8 +171,8 @@ export default function InstructorCourseAnalytics({
               <SnapshotTile
                 icon={ShoppingCart}
                 label="Purchases"
-                value={sales.purchases.toLocaleString("en-US")}
-                detail={`${sales.individualPurchases.toLocaleString("en-US")} individual · ${sales.teamPurchases.toLocaleString("en-US")} team`}
+                value={formatCount(sales.purchases)}
+                detail={`${formatCount(sales.individualPurchases)} individual · ${formatCount(sales.teamPurchases)} team`}
               />
             </div>
           </section>
@@ -178,20 +184,20 @@ export default function InstructorCourseAnalytics({
               <SnapshotTile
                 icon={Users}
                 label="Enrollments"
-                value={reach.enrollments.toLocaleString("en-US")}
+                value={formatCount(reach.enrollments)}
               />
               <SnapshotTile
                 icon={UserX}
                 label="Not started"
-                value={reach.notStarted.toLocaleString("en-US")}
+                value={formatCount(reach.notStarted)}
                 detail={`${reach.notStartedPercent}% of enrollments never opened a lesson`}
               />
               {sales.teamPurchases > 0 && (
                 <SnapshotTile
                   icon={Ticket}
                   label="Team seats redeemed"
-                  value={`${reach.seatsRedeemed.toLocaleString("en-US")} of ${reach.seatsSold.toLocaleString("en-US")}`}
-                  detail={`${(reach.seatsSold - reach.seatsRedeemed).toLocaleString("en-US")} paid-for seats unused`}
+                  value={`${formatCount(reach.seatsRedeemed)} of ${formatCount(reach.seatsSold)}`}
+                  detail={`${formatCount(reach.seatsSold - reach.seatsRedeemed)} paid-for seats unused`}
                 />
               )}
             </div>
@@ -199,15 +205,11 @@ export default function InstructorCourseAnalytics({
 
           {/* Trends — the Window scopes only this section */}
           <section className="mt-10">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold">Trends</h2>
-                <p className="text-sm text-muted-foreground">
-                  {trends.bucket === "day" ? "Daily" : "Weekly"} totals
-                </p>
-              </div>
-              <WindowPicker value={trends.window} />
-            </div>
+            <SectionHeading
+              title="Trends"
+              subtitle={`${trends.bucket === "day" ? "Daily" : "Weekly"} totals`}
+              action={<WindowPicker value={trends.window} />}
+            />
             <div className="grid gap-4 lg:grid-cols-2">
               <Card>
                 <CardHeader>
@@ -235,9 +237,9 @@ export default function InstructorCourseAnalytics({
                     data={trends.enrollments}
                     bucket={trends.bucket}
                     formatValue={(v) =>
-                      `${v.toLocaleString("en-US")} ${v === 1 ? "enrollment" : "enrollments"}`
+                      `${formatCount(v)} ${v === 1 ? "enrollment" : "enrollments"}`
                     }
-                    formatTick={(v) => v.toLocaleString("en-US")}
+                    formatTick={formatCount}
                     color="var(--chart-2)"
                     emptyMessage="No enrollments yet."
                   />
@@ -254,7 +256,7 @@ export default function InstructorCourseAnalytics({
                 icon={CheckCircle}
                 label="Completion rate"
                 value={`${progress.completionRate}%`}
-                detail={`${progress.completed.toLocaleString("en-US")} of ${progress.enrollments.toLocaleString("en-US")} enrolled finished the course`}
+                detail={`${formatCount(progress.completed)} of ${formatCount(progress.enrollments)} enrolled finished the course`}
               />
             </div>
             <Card>

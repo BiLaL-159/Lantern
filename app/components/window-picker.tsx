@@ -1,12 +1,10 @@
 import { Link } from "react-router";
 import { cn } from "~/lib/utils";
-import type { TrendWindow } from "~/services/analyticsService";
+import { TREND_WINDOWS, type TrendWindow } from "~/services/analyticsService";
 
 // ─── Window Picker ───
 // Chooses the Trend Window (30d / 90d / all-time). The choice lives in the
 // URL's `window` search param so it survives reloads; tiles ignore it.
-
-export const TREND_WINDOWS: TrendWindow[] = ["30d", "90d", "all"];
 
 const LABELS: Record<TrendWindow, string> = {
   "30d": "30 days",
@@ -27,19 +25,19 @@ export function WindowPicker({ value }: { value: TrendWindow }) {
       aria-label="Trend window"
       className="inline-flex h-9 items-center rounded-lg bg-muted p-1 text-muted-foreground"
     >
-      {TREND_WINDOWS.map((window) => (
+      {TREND_WINDOWS.map((trendWindow) => (
         <Link
-          key={window}
-          to={{ search: `?window=${window}` }}
+          key={trendWindow}
+          to={{ search: `?window=${trendWindow}` }}
           replace
           preventScrollReset
-          aria-current={window === value ? "true" : undefined}
+          aria-current={trendWindow === value ? "true" : undefined}
           className={cn(
             "rounded-md px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] hover:text-foreground",
-            window === value && "bg-background text-foreground shadow-sm"
+            trendWindow === value && "bg-background text-foreground shadow-sm"
           )}
         >
-          {LABELS[window]}
+          {LABELS[trendWindow]}
         </Link>
       ))}
     </div>

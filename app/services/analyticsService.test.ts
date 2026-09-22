@@ -217,6 +217,28 @@ describe("analyticsService", () => {
       expect(trend.map((p) => p.value)).toEqual([1, 0, 0, 0, 1]);
     });
 
+    it("buckets the last 90 days weekly and excludes the second before it opens", () => {
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+      const c = makeStudent("c@example.com");
+      enrollAt(a.id, base.course.id, "2026-06-22T00:00:00.000Z"); // first Monday
+      enrollAt(b.id, base.course.id, "2026-06-21T23:59:59.000Z"); // excluded
+      enrollAt(c.id, base.course.id, "2026-09-21T00:00:00.000Z"); // last Monday
+
+      const trend = getCourseEnrollmentTrend(base.course.id, "90d", NOW);
+
+      expect(trend).toHaveLength(14);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-06-22T00:00:00.000Z",
+        value: 1,
+      });
+      expect(trend[13]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 1,
+      });
+      expect(trend.reduce((sum, p) => sum + p.value, 0)).toBe(2);
+    });
+
     it("is empty all-time when the course has no enrollments", () => {
       expect(getCourseEnrollmentTrend(base.course.id, "all", NOW)).toEqual([]);
     });
