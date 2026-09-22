@@ -203,7 +203,7 @@ describe("progressService", () => {
       expect(getEnrollment(base.user.id, base.course.id)).toBeUndefined();
     });
 
-    it("never completes a course with zero lessons", () => {
+    it("leaves an enrollment in a zero-lesson course untouched when a lesson elsewhere is completed", () => {
       const emptyCourse = createEmptyCourse("empty-course");
       enroll(base.user.id, emptyCourse.id);
       const { lessons } = createModuleWithLessons(base.course.id, "Module 1", 1, 1);

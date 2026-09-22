@@ -11,7 +11,7 @@ import {
 import {
   findEnrollment,
   markEnrollmentComplete,
-} from "~/services/enrollmentService";
+} from "./enrollmentService";
 
 // ─── Progress Service ───
 // Handles lesson completion tracking and course progress calculation.
@@ -93,24 +93,37 @@ export function markLessonComplete(userId: number, lessonId: number) {
 // course has a completed progress row for the user. Idempotent: an existing
 // stamp is never overwritten, so adding lessons later leaves it intact.
 function recordCourseCompletionIfEarned(userId: number, lessonId: number) {
-  const courseRow = db
+  const parent = db
     .select({ courseId: modules.courseId })
     .from(lessons)
     .innerJoin(modules, eq(lessons.moduleId, modules.id))
     .where(eq(lessons.id, lessonId))
     .get();
-  if (!courseRow) return;
+  if (!parent) return;
+  const { courseId } = parent;
 
-  const enrollment = findEnrollment(userId, courseRow.courseId);
+  const enrollment = findEnrollment(userId, courseId);
   if (!enrollment || enrollment.completedAt) return;
 
-  const lessonIds = getCourseLessonIds(courseRow.courseId);
+  const lessonIds = getCourseLessonIds(courseId);
   if (lessonIds.length === 0) return;
 
-  const completedCount = getCompletedLessonCount(userId, courseRow.courseId);
-  if (completedCount < lessonIds.length) return;
+  // Distinct, so duplicate progress rows for one lesson can't stand in for
+  // another lesson that is still incomplete.
+  const completed = db
+    .select({ count: sql<number>`count(distinct ${lessonProgress.lessonId})` })
+    .from(lessonProgress)
+    .where(
+      and(
+        eq(lessonProgress.userId, userId),
+        eq(lessonProgress.status, LessonProgressStatus.Completed),
+        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+      )
+    )
+    .get();
+  if ((completed?.count ?? 0) < lessonIds.length) return;
 
-  markEnrollmentComplete(userId, courseRow.courseId);
+  markEnrollmentComplete(userId, courseId);
 }
 
 export function markLessonInProgress(userId: number, lessonId: number) {
