@@ -8,9 +8,14 @@ import {
   enrollments,
   LessonProgressStatus,
 } from "~/db/schema";
+import {
+  findEnrollment,
+  markEnrollmentComplete,
+} from "~/services/enrollmentService";
 
 // ─── Progress Service ───
 // Handles lesson completion tracking and course progress calculation.
+// Course completion is recorded here, not derived on read (ADR-0001).
 // Uses positional parameters (project convention).
 
 export function getLessonProgress(userId: number, lessonId: number) {
@@ -58,28 +63,54 @@ export function getLessonProgressForCourse(userId: number, courseId: number) {
 export function markLessonComplete(userId: number, lessonId: number) {
   const existing = getLessonProgress(userId, lessonId);
 
-  if (existing) {
-    return db
-      .update(lessonProgress)
-      .set({
-        status: LessonProgressStatus.Completed,
-        completedAt: new Date().toISOString(),
-      })
-      .where(eq(lessonProgress.id, existing.id))
-      .returning()
-      .get();
-  }
+  const progress = existing
+    ? db
+        .update(lessonProgress)
+        .set({
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .where(eq(lessonProgress.id, existing.id))
+        .returning()
+        .get()
+    : db
+        .insert(lessonProgress)
+        .values({
+          userId,
+          lessonId,
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
 
-  return db
-    .insert(lessonProgress)
-    .values({
-      userId,
-      lessonId,
-      status: LessonProgressStatus.Completed,
-      completedAt: new Date().toISOString(),
-    })
-    .returning()
+  recordCourseCompletionIfEarned(userId, lessonId);
+
+  return progress;
+}
+
+// Stamps the enrollment's completedAt once every lesson of the lesson's
+// course has a completed progress row for the user. Idempotent: an existing
+// stamp is never overwritten, so adding lessons later leaves it intact.
+function recordCourseCompletionIfEarned(userId: number, lessonId: number) {
+  const courseRow = db
+    .select({ courseId: modules.courseId })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(lessons.id, lessonId))
     .get();
+  if (!courseRow) return;
+
+  const enrollment = findEnrollment(userId, courseRow.courseId);
+  if (!enrollment || enrollment.completedAt) return;
+
+  const lessonIds = getCourseLessonIds(courseRow.courseId);
+  if (lessonIds.length === 0) return;
+
+  const completedCount = getCompletedLessonCount(userId, courseRow.courseId);
+  if (completedCount < lessonIds.length) return;
+
+  markEnrollmentComplete(userId, courseRow.courseId);
 }
 
 export function markLessonInProgress(userId: number, lessonId: number) {
