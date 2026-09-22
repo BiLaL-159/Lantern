@@ -22,6 +22,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { TrendChart } from "~/components/trend-chart";
 import { DropOffFunnel } from "~/components/drop-off-funnel";
+import { SnapshotTile } from "~/components/snapshot-tile";
 import { RatingDistribution } from "~/components/rating-distribution";
 import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
@@ -87,33 +88,6 @@ function SectionHeading({
       </div>
       {action}
     </div>
-  );
-}
-
-function SnapshotTile({
-  icon: Icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: typeof DollarSign;
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-4 py-6">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Icon className="size-5" />
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold">{value}</p>
-          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

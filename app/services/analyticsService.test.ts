@@ -18,6 +18,7 @@ import {
   getCourseEnrollmentTrend,
   getCourseProgress,
   getCourseSentiment,
+  getInstructorRollup,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -608,6 +609,132 @@ describe("analyticsService", () => {
       createComment(a.id, otherLesson.id, "Elsewhere");
 
       expect(getCourseSentiment(base.course.id).comments).toBe(4);
+    });
+  });
+
+  describe("getInstructorRollup", () => {
+    function makeInstructor(email: string) {
+      return testDb
+        .insert(schema.users)
+        .values({ name: email, email, role: schema.UserRole.Instructor })
+        .returning()
+        .get();
+    }
+
+    it("returns zero totals and no courses for an instructor with no courses", () => {
+      const nobody = makeInstructor("nobody@example.com");
+      expect(getInstructorRollup(nobody.id)).toEqual({
+        totals: {
+          revenue: 0,
+          enrollments: 0,
+          activeCourses: 0,
+          averageRating: null,
+          ratingCount: 0,
+        },
+        courses: [],
+      });
+    });
+
+    it("aggregates across the instructor's courses, including a draft and an archived one", () => {
+      // base.course is published. Add a draft and an archived course.
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      const draft = makeCourse("draft", schema.CourseStatus.Draft);
+      const [a, b, c, d] = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+
+      // Published: 2 purchases, 3 enrollments, 1 completed, ratings 5 and 3.
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-01T00:00:00.000Z");
+      purchaseAt(b.id, base.course.id, 2500, "2026-09-02T00:00:00.000Z");
+      for (const s of [a, b, c]) enrollUser(s.id, base.course.id, false, false);
+      markEnrollmentComplete(a.id, base.course.id);
+      upsertRating(a.id, base.course.id, 5);
+      upsertRating(b.id, base.course.id, 3);
+
+      // Archived: history is kept. 1 purchase, 1 enrollment, rating 1.
+      purchaseAt(d.id, archived.id, 10000, "2026-01-01T00:00:00.000Z");
+      enrollUser(d.id, archived.id, false, false);
+      upsertRating(d.id, archived.id, 1);
+
+      // Another instructor's course must not leak in.
+      const other = makeInstructor("other@example.com");
+      const theirs = testDb
+        .insert(schema.courses)
+        .values({
+          title: "theirs",
+          slug: "theirs",
+          description: "desc",
+          instructorId: other.id,
+          categoryId: base.category.id,
+          status: schema.CourseStatus.Published,
+        })
+        .returning()
+        .get();
+      purchaseAt(c.id, theirs.id, 99999, "2026-09-03T00:00:00.000Z");
+      enrollUser(c.id, theirs.id, false, false);
+      upsertRating(c.id, theirs.id, 5);
+
+      const rollup = getInstructorRollup(base.instructor.id);
+
+      expect(rollup.totals).toEqual({
+        revenue: 17499,
+        enrollments: 4,
+        activeCourses: 1,
+        // Mean over all three ratings (5, 3, 1), not of per-course means.
+        averageRating: 3,
+        ratingCount: 3,
+      });
+      // Highest revenue first, then title.
+      expect(rollup.courses).toEqual([
+        {
+          courseId: archived.id,
+          title: "archived",
+          status: schema.CourseStatus.Archived,
+          revenue: 10000,
+          enrollments: 1,
+          completionRate: 0,
+          averageRating: 1,
+          ratingCount: 1,
+        },
+        {
+          courseId: base.course.id,
+          title: "Test Course",
+          status: schema.CourseStatus.Published,
+          revenue: 7499,
+          enrollments: 3,
+          completionRate: 33,
+          averageRating: 4,
+          ratingCount: 2,
+        },
+        {
+          courseId: draft.id,
+          title: "draft",
+          status: schema.CourseStatus.Draft,
+          revenue: 0,
+          enrollments: 0,
+          completionRate: 0,
+          averageRating: null,
+          ratingCount: 0,
+        },
+      ]);
+    });
+
+    it("weights the average rating by ratings, not by courses", () => {
+      const second = makeCourse("second");
+      const students = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      // Four 5-star ratings on one course, one 1-star on the other:
+      // mean over ratings is 4.2; mean of course means would be 3.
+      for (const s of students.slice(0, 3)) {
+        upsertRating(s.id, base.course.id, 5);
+      }
+      upsertRating(students[3].id, base.course.id, 5);
+      upsertRating(students[0].id, second.id, 1);
+
+      const { totals } = getInstructorRollup(base.instructor.id);
+      expect(totals.averageRating).toBeCloseTo(4.2);
+      expect(totals.ratingCount).toBe(5);
     });
   });
 });
