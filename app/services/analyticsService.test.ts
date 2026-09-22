@@ -314,13 +314,26 @@ describe("analyticsService", () => {
       expect(getCourseSales(base.course.id)).toEqual({
         revenue: 0,
         purchases: 0,
+        individualPurchases: 0,
+        teamPurchases: 0,
       });
     });
 
     it("returns zero data for a draft course", () => {
       const draft = makeCourse("draft", schema.CourseStatus.Draft);
-      expect(getCourseSales(draft.id)).toEqual({ revenue: 0, purchases: 0 });
-      expect(getCourseReach(draft.id)).toEqual({ enrollments: 0 });
+      expect(getCourseSales(draft.id)).toEqual({
+        revenue: 0,
+        purchases: 0,
+        individualPurchases: 0,
+        teamPurchases: 0,
+      });
+      expect(getCourseReach(draft.id)).toEqual({
+        enrollments: 0,
+        notStarted: 0,
+        notStartedPercent: 0,
+        seatsSold: 0,
+        seatsRedeemed: 0,
+      });
     });
 
     it("counts a free purchase even though it adds no revenue", () => {
@@ -329,6 +342,8 @@ describe("analyticsService", () => {
       expect(getCourseSales(base.course.id)).toEqual({
         revenue: 0,
         purchases: 1,
+        individualPurchases: 1,
+        teamPurchases: 0,
       });
     });
 
@@ -365,7 +380,39 @@ describe("analyticsService", () => {
       expect(getCourseSales(base.course.id)).toEqual({
         revenue: 16999,
         purchases: 2,
+        individualPurchases: 1,
+        teamPurchases: 1,
       });
+    });
+
+    it("splits purchases into individual and team by whether seats were issued", () => {
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+      const buyer = makeStudent("buyer@example.com");
+      createPurchase(a.id, base.course.id, 4999, "US");
+      createPurchase(b.id, base.course.id, 2500, "IN");
+      createTeamPurchase(buyer.id, base.course.id, 12000, "US", 3);
+      const { coupons } = createTeamPurchase(
+        buyer.id,
+        base.course.id,
+        8000,
+        "US",
+        2
+      );
+      redeemCoupon(coupons[0].code, a.id, "US");
+
+      const sales = getCourseSales(base.course.id);
+      expect(sales.purchases).toBe(4);
+      expect(sales.individualPurchases).toBe(2);
+      expect(sales.teamPurchases).toBe(2);
+    });
+
+    it("reports zero team purchases for a course sold only individually", () => {
+      const a = makeStudent("a@example.com");
+      createPurchase(a.id, base.course.id, 4999, "US");
+      const sales = getCourseSales(base.course.id);
+      expect(sales.individualPurchases).toBe(1);
+      expect(sales.teamPurchases).toBe(0);
     });
 
     it("ignores purchases of other courses", () => {
@@ -385,7 +432,59 @@ describe("analyticsService", () => {
 
   describe("getCourseReach", () => {
     it("returns zero enrollments for a course with no students", () => {
-      expect(getCourseReach(base.course.id)).toEqual({ enrollments: 0 });
+      expect(getCourseReach(base.course.id)).toEqual({
+        enrollments: 0,
+        notStarted: 0,
+        notStartedPercent: 0,
+        seatsSold: 0,
+        seatsRedeemed: 0,
+      });
+    });
+
+    it("counts enrolled students with no progress on any lesson as not started", () => {
+      const mod = createModule(base.course.id, "Only", 1);
+      const l1 = makeLesson(mod.id, "Lesson 1");
+      const other = makeCourse("other");
+      const otherLesson = makeLesson(createModule(other.id, "M", 1).id, "L");
+
+      const [s1, s2, s3] = ["s1", "s2", "s3"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      for (const s of [s1, s2, s3]) {
+        enrollUser(s.id, base.course.id, false, false);
+      }
+      markLessonComplete(s1.id, l1.id);
+      markLessonInProgress(s2.id, l1.id); // in progress still counts as started
+      enrollUser(s3.id, other.id, false, false);
+      markLessonComplete(s3.id, otherLesson.id); // progress elsewhere doesn't
+
+      const reach = getCourseReach(base.course.id);
+      expect(reach.enrollments).toBe(3);
+      expect(reach.notStarted).toBe(1);
+      expect(reach.notStartedPercent).toBe(33);
+    });
+
+    it("reports seats sold vs redeemed across the course's team purchases", () => {
+      const buyer = makeStudent("buyer@example.com");
+      const m1 = makeStudent("m1@example.com");
+      const m2 = makeStudent("m2@example.com");
+      const first = createTeamPurchase(
+        buyer.id,
+        base.course.id,
+        12000,
+        "US",
+        3
+      );
+      createTeamPurchase(buyer.id, base.course.id, 8000, "US", 2);
+      redeemCoupon(first.coupons[0].code, m1.id, "US");
+      redeemCoupon(first.coupons[1].code, m2.id, "US");
+      // Seats for another course don't count.
+      const other = makeCourse("other");
+      createTeamPurchase(buyer.id, other.id, 8000, "US", 4);
+
+      const reach = getCourseReach(base.course.id);
+      expect(reach.seatsSold).toBe(5);
+      expect(reach.seatsRedeemed).toBe(2);
     });
 
     it("counts enrollments regardless of how they were created", () => {
