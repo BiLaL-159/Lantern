@@ -17,6 +17,10 @@ import {
   getCourseRevenueTrend,
   getCourseEnrollmentTrend,
   getCourseProgress,
+  getCourseSentiment,
+  getInstructorRollup,
+  getPlatformTotals,
+  getTopCourses,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -24,6 +28,8 @@ import { enrollUser, markEnrollmentComplete } from "./enrollmentService";
 import { createModule } from "./moduleService";
 import { createLesson } from "./lessonService";
 import { markLessonComplete, markLessonInProgress } from "./progressService";
+import { upsertRating } from "./ratingService";
+import { createComment, softDeleteComment } from "./commentService";
 
 function makeStudent(email: string) {
   return testDb
@@ -530,6 +536,312 @@ describe("analyticsService", () => {
       const a = makeStudent("a@example.com");
       enrollUser(a.id, other.id, false, false);
       expect(getCourseReach(base.course.id).enrollments).toBe(0);
+    });
+  });
+
+  describe("getCourseSentiment", () => {
+    it("reports no average, an all-zero distribution and no comments for a fresh course", () => {
+      expect(getCourseSentiment(base.course.id)).toEqual({
+        average: null,
+        count: 0,
+        distribution: [
+          { rating: 5, count: 0, percent: 0 },
+          { rating: 4, count: 0, percent: 0 },
+          { rating: 3, count: 0, percent: 0 },
+          { rating: 2, count: 0, percent: 0 },
+          { rating: 1, count: 0, percent: 0 },
+        ],
+        comments: 0,
+      });
+    });
+
+    it("averages ratings and shares each star, highest first, with zeros for unused stars", () => {
+      const students = ["a", "b", "c", "d", "e"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      upsertRating(students[0].id, base.course.id, 5);
+      upsertRating(students[1].id, base.course.id, 5);
+      upsertRating(students[2].id, base.course.id, 4);
+      upsertRating(students[3].id, base.course.id, 1);
+      // Re-rating replaces the earlier rating rather than adding one.
+      upsertRating(students[4].id, base.course.id, 2);
+      upsertRating(students[4].id, base.course.id, 4);
+
+      const sentiment = getCourseSentiment(base.course.id);
+      expect(sentiment.average).toBeCloseTo(3.8);
+      expect(sentiment.count).toBe(5);
+      expect(sentiment.distribution).toEqual([
+        { rating: 5, count: 2, percent: 40 },
+        { rating: 4, count: 2, percent: 40 },
+        { rating: 3, count: 0, percent: 0 },
+        { rating: 2, count: 0, percent: 0 },
+        { rating: 1, count: 1, percent: 20 },
+      ]);
+    });
+
+    it("ignores ratings on other courses", () => {
+      const other = makeCourse("other");
+      const a = makeStudent("a@example.com");
+      upsertRating(a.id, other.id, 5);
+      const sentiment = getCourseSentiment(base.course.id);
+      expect(sentiment.average).toBeNull();
+      expect(sentiment.count).toBe(0);
+    });
+
+    it("counts comments across every lesson including replies, excluding deleted ones", () => {
+      const m1 = createModule(base.course.id, "M1", 1);
+      const m2 = createModule(base.course.id, "M2", 2);
+      const l1 = makeLesson(m1.id, "L1");
+      const l2 = makeLesson(m2.id, "L2");
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+
+      const top = createComment(a.id, l1.id, "Question");
+      createComment(b.id, l1.id, "Answer", top.id); // reply counts
+      createComment(a.id, l2.id, "Another lesson");
+      const gone = createComment(b.id, l2.id, "Removed");
+      softDeleteComment(gone.id);
+      // A reply under a deleted parent is still a live comment.
+      const parent = createComment(a.id, l2.id, "Parent");
+      createComment(b.id, l2.id, "Reply", parent.id);
+      softDeleteComment(parent.id);
+      // Comments on another course's lessons don't count.
+      const other = makeCourse("other");
+      const otherLesson = makeLesson(createModule(other.id, "M", 1).id, "L");
+      createComment(a.id, otherLesson.id, "Elsewhere");
+
+      expect(getCourseSentiment(base.course.id).comments).toBe(4);
+    });
+  });
+
+  describe("getInstructorRollup", () => {
+    function makeInstructor(email: string) {
+      return testDb
+        .insert(schema.users)
+        .values({ name: email, email, role: schema.UserRole.Instructor })
+        .returning()
+        .get();
+    }
+
+    it("returns zero totals and no courses for an instructor with no courses", () => {
+      const nobody = makeInstructor("nobody@example.com");
+      expect(getInstructorRollup(nobody.id)).toEqual({
+        totals: {
+          revenue: 0,
+          enrollments: 0,
+          activeCourses: 0,
+          averageRating: null,
+          ratingCount: 0,
+        },
+        courses: [],
+      });
+    });
+
+    it("aggregates across the instructor's courses, including a draft and an archived one", () => {
+      // base.course is published. Add a draft and an archived course.
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      const draft = makeCourse("draft", schema.CourseStatus.Draft);
+      const [a, b, c, d] = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+
+      // Published: 2 purchases, 3 enrollments, 1 completed, ratings 5 and 3.
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-01T00:00:00.000Z");
+      purchaseAt(b.id, base.course.id, 2500, "2026-09-02T00:00:00.000Z");
+      for (const s of [a, b, c]) enrollUser(s.id, base.course.id, false, false);
+      markEnrollmentComplete(a.id, base.course.id);
+      upsertRating(a.id, base.course.id, 5);
+      upsertRating(b.id, base.course.id, 3);
+
+      // Archived: history is kept. 1 purchase, 1 enrollment, rating 1.
+      purchaseAt(d.id, archived.id, 10000, "2026-01-01T00:00:00.000Z");
+      enrollUser(d.id, archived.id, false, false);
+      upsertRating(d.id, archived.id, 1);
+
+      // Another instructor's course must not leak in.
+      const other = makeInstructor("other@example.com");
+      const theirs = testDb
+        .insert(schema.courses)
+        .values({
+          title: "theirs",
+          slug: "theirs",
+          description: "desc",
+          instructorId: other.id,
+          categoryId: base.category.id,
+          status: schema.CourseStatus.Published,
+        })
+        .returning()
+        .get();
+      purchaseAt(c.id, theirs.id, 99999, "2026-09-03T00:00:00.000Z");
+      enrollUser(c.id, theirs.id, false, false);
+      upsertRating(c.id, theirs.id, 5);
+
+      const rollup = getInstructorRollup(base.instructor.id);
+
+      expect(rollup.totals).toEqual({
+        revenue: 17499,
+        enrollments: 4,
+        activeCourses: 1,
+        // Mean over all three ratings (5, 3, 1), not of per-course means.
+        averageRating: 3,
+        ratingCount: 3,
+      });
+      // Highest revenue first, then title.
+      expect(rollup.courses).toEqual([
+        {
+          courseId: archived.id,
+          title: "archived",
+          status: schema.CourseStatus.Archived,
+          instructorName: "Test Instructor",
+          revenue: 10000,
+          enrollments: 1,
+          completionRate: 0,
+          averageRating: 1,
+          ratingCount: 1,
+        },
+        {
+          courseId: base.course.id,
+          title: "Test Course",
+          status: schema.CourseStatus.Published,
+          instructorName: "Test Instructor",
+          revenue: 7499,
+          enrollments: 3,
+          completionRate: 33,
+          averageRating: 4,
+          ratingCount: 2,
+        },
+        {
+          courseId: draft.id,
+          title: "draft",
+          status: schema.CourseStatus.Draft,
+          instructorName: "Test Instructor",
+          revenue: 0,
+          enrollments: 0,
+          completionRate: 0,
+          averageRating: null,
+          ratingCount: 0,
+        },
+      ]);
+    });
+
+    it("weights the average rating by ratings, not by courses", () => {
+      const second = makeCourse("second");
+      const students = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      // Four 5-star ratings on one course, one 1-star on the other:
+      // mean over ratings is 4.2; mean of course means would be 3.
+      for (const s of students.slice(0, 3)) {
+        upsertRating(s.id, base.course.id, 5);
+      }
+      upsertRating(students[3].id, base.course.id, 5);
+      upsertRating(students[0].id, second.id, 1);
+
+      const { totals } = getInstructorRollup(base.instructor.id);
+      expect(totals.averageRating).toBeCloseTo(4.2);
+      expect(totals.ratingCount).toBe(5);
+    });
+  });
+
+  describe("getPlatformTotals", () => {
+    it("returns zeros on an empty platform apart from the seeded users and course", () => {
+      expect(getPlatformTotals()).toEqual({
+        revenue: 0,
+        users: 2, // seedBaseData: one student, one instructor
+        enrollments: 0,
+        activeCourses: 1,
+        courses: 1,
+      });
+    });
+
+    it("counts archived courses in revenue and enrollments but not as active", () => {
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      makeCourse("draft", schema.CourseStatus.Draft);
+      const [a, b] = ["a", "b"].map((n) => makeStudent(`${n}@example.com`));
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-01T00:00:00.000Z");
+      purchaseAt(b.id, archived.id, 10000, "2026-01-01T00:00:00.000Z");
+      enrollUser(a.id, base.course.id, false, false);
+      enrollUser(b.id, archived.id, false, false);
+      enrollUser(a.id, archived.id, false, false);
+
+      expect(getPlatformTotals()).toEqual({
+        revenue: 14999,
+        users: 4,
+        enrollments: 3,
+        activeCourses: 1,
+        courses: 3,
+      });
+    });
+  });
+
+  describe("getTopCourses", () => {
+    function seedThreeCourses() {
+      const cheap = makeCourse("cheap");
+      const popular = makeCourse("popular", schema.CourseStatus.Archived);
+      const [a, b, c] = ["a", "b", "c"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      // base.course: most revenue, one enrollment, rated 3.
+      purchaseAt(a.id, base.course.id, 20000, "2026-09-01T00:00:00.000Z");
+      enrollUser(a.id, base.course.id, false, false);
+      upsertRating(a.id, base.course.id, 3);
+      // popular: three enrollments, rated 5 and 4.
+      purchaseAt(b.id, popular.id, 100, "2026-09-01T00:00:00.000Z");
+      for (const s of [a, b, c]) enrollUser(s.id, popular.id, false, false);
+      upsertRating(b.id, popular.id, 5);
+      upsertRating(c.id, popular.id, 4);
+      // cheap: some revenue, no enrollments, no ratings.
+      purchaseAt(c.id, cheap.id, 500, "2026-09-01T00:00:00.000Z");
+      return { cheap, popular };
+    }
+
+    it("sorts by revenue descending by default, with the instructor named", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("revenue");
+      expect(rows.map((r) => [r.courseId, r.revenue])).toEqual([
+        [base.course.id, 20000],
+        [cheap.id, 500],
+        [popular.id, 100],
+      ]);
+      expect(rows[0]).toMatchObject({
+        title: "Test Course",
+        status: schema.CourseStatus.Published,
+        instructorName: "Test Instructor",
+        enrollments: 1,
+        completionRate: 0,
+        averageRating: 3,
+        ratingCount: 1,
+      });
+    });
+
+    it("sorts by enrollments descending, breaking ties by title", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("enrollments");
+      expect(rows.map((r) => [r.courseId, r.enrollments])).toEqual([
+        [popular.id, 3],
+        [base.course.id, 1],
+        [cheap.id, 0],
+      ]);
+    });
+
+    it("sorts by average rating descending with unrated courses last", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("rating");
+      expect(rows.map((r) => [r.courseId, r.averageRating])).toEqual([
+        [popular.id, 4.5],
+        [base.course.id, 3],
+        [cheap.id, null],
+      ]);
+    });
+
+    it("includes draft and archived courses", () => {
+      makeCourse("draft", schema.CourseStatus.Draft);
+      makeCourse("archived", schema.CourseStatus.Archived);
+      expect(getTopCourses("revenue").map((r) => r.title).sort()).toEqual([
+        "Test Course",
+        "archived",
+        "draft",
+      ]);
     });
   });
 });
