@@ -36,6 +36,13 @@
       "when": 1789649392257,
       "tag": "0004_neat_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790057138472,
+      "tag": "0005_backfill_course_completion",
+      "breakpoints": true
     }
   ]
 }
