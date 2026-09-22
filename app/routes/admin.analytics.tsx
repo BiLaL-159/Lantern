@@ -58,7 +58,7 @@ import {
 
 export function meta() {
   return [
-    { title: "Platform Health — Cadence" },
+    { title: "Platform Health — Lantern" },
     { name: "description", content: "Platform-wide analytics" },
   ];
 }

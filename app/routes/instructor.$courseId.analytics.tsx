@@ -52,7 +52,7 @@ import {
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.course?.title ?? "Course Performance";
   return [
-    { title: `Analytics: ${title} — Cadence` },
+    { title: `Analytics: ${title} — Lantern` },
     { name: "description", content: `Course Performance for ${title}` },
   ];
 }

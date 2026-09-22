@@ -2,11 +2,11 @@ import { createCookieSessionStorage } from "react-router";
 
 const sessionStorage = createCookieSessionStorage({
   cookie: {
-    name: "cadence_session",
+    name: "lantern_session",
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    secrets: ["cadence-dev-secret"],
+    secrets: ["lantern-dev-secret"],
   },
 });
 

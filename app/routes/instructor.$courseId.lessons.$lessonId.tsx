@@ -35,7 +35,7 @@ const updateLessonSchema = z.object({
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const title = loaderData?.lesson?.title ?? "Edit Lesson";
   return [
-    { title: `Edit: ${title} — Cadence` },
+    { title: `Edit: ${title} — Lantern` },
     { name: "description", content: `Edit lesson: ${title}` },
   ];
 }

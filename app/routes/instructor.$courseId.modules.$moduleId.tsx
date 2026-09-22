@@ -31,7 +31,7 @@ const paramsSchema = z.object({
 export function meta({ data: loaderData }: Route.MetaArgs) {
   const moduleTitle = loaderData?.module?.title ?? "Module";
   const courseTitle = loaderData?.course?.title ?? "Course";
-  return [{ title: `Preview: ${moduleTitle} — ${courseTitle} — Cadence` }];
+  return [{ title: `Preview: ${moduleTitle} — ${courseTitle} — Lantern` }];
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
