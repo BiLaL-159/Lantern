@@ -62,7 +62,7 @@ export default function InstructorCourseAnalytics({
   loaderData,
 }: Route.ComponentProps) {
   const { course, sales, reach } = loaderData;
-  const hasData = sales.revenue > 0 || reach.enrollments > 0;
+  const hasData = sales.purchases > 0 || reach.enrollments > 0;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
