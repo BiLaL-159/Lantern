@@ -30,7 +30,7 @@ interface CouponRow {
 
 export function meta() {
   return [
-    { title: "Team — Cadence" },
+    { title: "Team — Lantern" },
     { name: "description", content: "Manage your team's course seats" },
   ];
 }

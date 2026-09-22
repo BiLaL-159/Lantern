@@ -22,7 +22,7 @@ import { CourseStatusBadge } from "~/components/course-status-badge";
 
 export function meta() {
   return [
-    { title: "My Courses — Cadence" },
+    { title: "My Courses — Lantern" },
     { name: "description", content: "Manage your courses" },
   ];
 }

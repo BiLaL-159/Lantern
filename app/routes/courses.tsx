@@ -20,7 +20,7 @@ import { calculatePppPrice } from "~/lib/ppp";
 
 export function meta() {
   return [
-    { title: "Browse Courses — Cadence" },
+    { title: "Browse Courses — Lantern" },
     { name: "description", content: "Browse all available courses" },
   ];
 }

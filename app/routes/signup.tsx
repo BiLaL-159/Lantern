@@ -22,8 +22,8 @@ const signupSchema = z.object({
 
 export function meta() {
   return [
-    { title: "Sign Up — Cadence" },
-    { name: "description", content: "Create your Cadence account" },
+    { title: "Sign Up — Lantern" },
+    { name: "description", content: "Create your Lantern account" },
   ];
 }
 
@@ -90,7 +90,7 @@ export default function SignUp() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <Link to="/" className="text-2xl font-bold tracking-tight">
-            Cadence
+            Lantern
           </Link>
           <h1 className="mt-4 text-xl font-semibold">Create your account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
