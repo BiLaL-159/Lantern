@@ -9,16 +9,21 @@ import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import {
   COURSE_SORTS,
-  getNewUsersTrend,
-  getPlatformEnrollmentTrend,
-  getPlatformRevenueTrend,
   getPlatformTotals,
+  getPlatformTrends,
   getTopCourses,
   trendBucketFor,
   type CourseSort,
 } from "~/services/analyticsService";
 import { UserRole } from "~/db/schema";
-import { cn, formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
+import {
+  cn,
+  formatCount,
+  formatEnrollments,
+  formatUsd,
+  formatUsdCompact,
+  withSearchParam,
+} from "~/lib/utils";
 import {
   Card,
   CardContent,
@@ -28,7 +33,12 @@ import {
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { SnapshotTile } from "~/components/snapshot-tile";
-import { TrendChart, type TrendSeries } from "~/components/trend-chart";
+import {
+  TrendChart,
+  enrollmentSeries,
+  revenueSeries,
+  type TrendSeries,
+} from "~/components/trend-chart";
 import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   CourseTitleCell,
@@ -85,9 +95,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     trends: {
       window: trendWindow,
       bucket: trendBucketFor(trendWindow),
-      newUsers: getNewUsersTrend(trendWindow, now),
-      revenue: getPlatformRevenueTrend(trendWindow, now),
-      enrollments: getPlatformEnrollmentTrend(trendWindow, now),
+      ...getPlatformTrends(trendWindow, now),
     },
   };
 }
@@ -112,8 +120,6 @@ function SortHeader({
   const active = sortKey === current;
   // Keep the Window when re-sorting; the two are independent.
   const [searchParams] = useSearchParams();
-  const search = new URLSearchParams(searchParams);
-  search.set("sort", sortKey);
 
   return (
     <th
@@ -121,7 +127,7 @@ function SortHeader({
       aria-sort={active ? "descending" : undefined}
     >
       <Link
-        to={{ search: `?${search}` }}
+        to={{ search: withSearchParam(searchParams, "sort", sortKey) }}
         replace
         preventScrollReset
         className={cn(
@@ -230,14 +236,7 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
             </CardHeader>
             <CardContent>
               <TrendChart
-                series={[
-                  {
-                    key: "revenue",
-                    label: "Revenue",
-                    color: "var(--chart-1)",
-                    points: trends.revenue,
-                  },
-                ]}
+                series={[revenueSeries(trends.revenue)]}
                 bucket={trends.bucket}
                 formatValue={formatUsd}
                 formatTick={formatUsdCompact}
@@ -252,18 +251,9 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
             </CardHeader>
             <CardContent>
               <TrendChart
-                series={[
-                  {
-                    key: "enrollments",
-                    label: "Enrollments",
-                    color: "var(--chart-2)",
-                    points: trends.enrollments,
-                  },
-                ]}
+                series={[enrollmentSeries(trends.enrollments)]}
                 bucket={trends.bucket}
-                formatValue={(value) =>
-                  `${formatCount(value)} ${value === 1 ? "enrollment" : "enrollments"}`
-                }
+                formatValue={formatEnrollments}
                 formatTick={formatCount}
                 emptyMessage="No enrollments yet."
               />
