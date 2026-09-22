@@ -41,14 +41,26 @@ function makeStudent(email: string) {
     .get();
 }
 
-function makeCourse(slug: string, status = schema.CourseStatus.Published) {
+function makeInstructor(email: string) {
+  return testDb
+    .insert(schema.users)
+    .values({ name: email, email, role: schema.UserRole.Instructor })
+    .returning()
+    .get();
+}
+
+function makeCourse(
+  slug: string,
+  status = schema.CourseStatus.Published,
+  instructorId = base.instructor.id
+) {
   return testDb
     .insert(schema.courses)
     .values({
       title: slug,
       slug,
       description: "desc",
-      instructorId: base.instructor.id,
+      instructorId,
       categoryId: base.category.id,
       status,
       price: 4999,
@@ -617,14 +629,6 @@ describe("analyticsService", () => {
   });
 
   describe("getInstructorRollup", () => {
-    function makeInstructor(email: string) {
-      return testDb
-        .insert(schema.users)
-        .values({ name: email, email, role: schema.UserRole.Instructor })
-        .returning()
-        .get();
-    }
-
     it("returns zero totals and no courses for an instructor with no courses", () => {
       const nobody = makeInstructor("nobody@example.com");
       expect(getInstructorRollup(nobody.id)).toEqual({
@@ -662,18 +666,11 @@ describe("analyticsService", () => {
 
       // Another instructor's course must not leak in.
       const other = makeInstructor("other@example.com");
-      const theirs = testDb
-        .insert(schema.courses)
-        .values({
-          title: "theirs",
-          slug: "theirs",
-          description: "desc",
-          instructorId: other.id,
-          categoryId: base.category.id,
-          status: schema.CourseStatus.Published,
-        })
-        .returning()
-        .get();
+      const theirs = makeCourse(
+        "theirs",
+        schema.CourseStatus.Published,
+        other.id
+      );
       purchaseAt(c.id, theirs.id, 99999, "2026-09-03T00:00:00.000Z");
       enrollUser(c.id, theirs.id, false, false);
       upsertRating(c.id, theirs.id, 5);
@@ -839,23 +836,15 @@ describe("analyticsService", () => {
     it("includes draft and archived courses", () => {
       makeCourse("draft", schema.CourseStatus.Draft);
       makeCourse("archived", schema.CourseStatus.Archived);
-      expect(getTopCourses("revenue").map((r) => r.title).sort()).toEqual([
-        "Test Course",
-        "archived",
-        "draft",
-      ]);
+      expect(
+        getTopCourses("revenue")
+          .map((r) => r.title)
+          .sort()
+      ).toEqual(["Test Course", "archived", "draft"]);
     });
   });
 
   describe("getInstructorSummaries", () => {
-    function makeInstructor(email: string) {
-      return testDb
-        .insert(schema.users)
-        .values({ name: email, email, role: schema.UserRole.Instructor })
-        .returning()
-        .get();
-    }
-
     function rowFor(instructorId: number) {
       return getInstructorSummaries().find(
         (row) => row.instructorId === instructorId
@@ -894,22 +883,51 @@ describe("analyticsService", () => {
       });
     });
 
-    it("totals courses, students and revenue per instructor, richest first", () => {
-      const archived = makeCourse("archived", schema.CourseStatus.Archived);
-      const nobody = makeInstructor("nobody@example.com");
-      const other = makeInstructor("other@example.com");
-      const theirs = testDb
-        .insert(schema.courses)
+    it("includes a course owner who is not an instructor by role", () => {
+      const admin = testDb
+        .insert(schema.users)
         .values({
-          title: "theirs",
-          slug: "theirs",
-          description: "desc",
-          instructorId: other.id,
-          categoryId: base.category.id,
-          status: schema.CourseStatus.Published,
+          name: "Admin",
+          email: "admin@example.com",
+          role: schema.UserRole.Admin,
         })
         .returning()
         .get();
+      const theirs = makeCourse(
+        "theirs",
+        schema.CourseStatus.Published,
+        admin.id
+      );
+      const a = makeStudent("a@example.com");
+      purchaseAt(a.id, theirs.id, 2500, "2026-09-01T00:00:00.000Z");
+      enrollUser(a.id, theirs.id, false, false);
+
+      expect(rowFor(admin.id)).toMatchObject({
+        name: "Admin",
+        courses: 1,
+        students: 1,
+        revenue: 2500,
+      });
+      // Nobody's revenue goes missing from a table sitting under the
+      // platform's revenue total.
+      const rows = getInstructorSummaries();
+      expect(rows.reduce((sum, row) => sum + row.revenue, 0)).toBe(
+        getPlatformTotals().revenue
+      );
+    });
+
+    it("totals courses, students and revenue per instructor, richest first", () => {
+      // Draft and archived courses count here: the table is about who has
+      // carried the platform, not what is on sale today.
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      makeCourse("draft", schema.CourseStatus.Draft);
+      const nobody = makeInstructor("nobody@example.com");
+      const other = makeInstructor("other@example.com");
+      const theirs = makeCourse(
+        "theirs",
+        schema.CourseStatus.Published,
+        other.id
+      );
       const [a, b, c] = ["a", "b", "c"].map((n) =>
         makeStudent(`${n}@example.com`)
       );
@@ -932,7 +950,7 @@ describe("analyticsService", () => {
         {
           instructorId: base.instructor.id,
           name: "Test Instructor",
-          courses: 2,
+          courses: 3,
           students: 3,
           revenue: 14999,
           averageRating: 4,
