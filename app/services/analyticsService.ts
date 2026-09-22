@@ -2,6 +2,12 @@ import { and, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn, AnySQLiteTable } from "drizzle-orm/sqlite-core";
 import { db } from "~/db";
 import {
+  TREND_WINDOWS,
+  type TrendBucket,
+  type TrendPoint,
+  type TrendWindow,
+} from "~/lib/trends";
+import {
   purchases,
   enrollments,
   modules,
@@ -517,13 +523,9 @@ export function getInstructorSummaries(): InstructorSummary[] {
 
 // ─── Trends ───
 
-export const TREND_WINDOWS = ["30d", "90d", "all"] as const;
-
-export type TrendWindow = (typeof TREND_WINDOWS)[number];
-
-export type TrendPoint = { bucketStart: string; value: number };
-
-export type TrendBucket = "day" | "week";
+// The Window vocabulary is client-safe and lives in ~/lib/trends; the
+// components that draw Trends import it from there, not from here.
+export type { TrendBucket, TrendPoint, TrendWindow };
 
 // How each Window is reported: how many days back it reaches (null for
 // all-time) and the bucket size its Trend is bucketed in.
