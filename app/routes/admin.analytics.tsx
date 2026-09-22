@@ -1,18 +1,35 @@
-import { Link, data, isRouteErrorResponse } from "react-router";
+import {
+  Link,
+  data,
+  isRouteErrorResponse,
+  useSearchParams,
+} from "react-router";
 import type { Route } from "./+types/admin.analytics";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import {
   COURSE_SORTS,
+  getNewUsersTrend,
+  getPlatformEnrollmentTrend,
+  getPlatformRevenueTrend,
   getPlatformTotals,
   getTopCourses,
+  trendBucketFor,
   type CourseSort,
 } from "~/services/analyticsService";
 import { UserRole } from "~/db/schema";
-import { cn, formatCount, formatUsd } from "~/lib/utils";
-import { Card, CardContent } from "~/components/ui/card";
+import { cn, formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { SnapshotTile } from "~/components/snapshot-tile";
+import { TrendChart, type TrendSeries } from "~/components/trend-chart";
+import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   CourseTitleCell,
   RatingCell,
@@ -56,14 +73,31 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw data("Only admins can access this page.", { status: 403 });
   }
 
-  const sort = parseCourseSort(new URL(request.url));
+  const url = new URL(request.url);
+  const sort = parseCourseSort(url);
+  const trendWindow = parseTrendWindow(url);
+  const now = new Date();
 
   return {
     totals: getPlatformTotals(),
     sort,
     courses: getTopCourses(sort),
+    trends: {
+      window: trendWindow,
+      bucket: trendBucketFor(trendWindow),
+      newUsers: getNewUsersTrend(trendWindow, now),
+      revenue: getPlatformRevenueTrend(trendWindow, now),
+      enrollments: getPlatformEnrollmentTrend(trendWindow, now),
+    },
   };
 }
+
+// How each role's signups are drawn on the new-users Trend.
+const ROLE_SERIES: Record<UserRole, { label: string; color: string }> = {
+  [UserRole.Student]: { label: "Students", color: "var(--chart-1)" },
+  [UserRole.Instructor]: { label: "Instructors", color: "var(--chart-2)" },
+  [UserRole.Admin]: { label: "Admins", color: "var(--chart-3)" },
+};
 
 // A right-aligned column header that sorts the table by its key.
 function SortHeader({
@@ -76,13 +110,18 @@ function SortHeader({
   children: string;
 }) {
   const active = sortKey === current;
+  // Keep the Window when re-sorting; the two are independent.
+  const [searchParams] = useSearchParams();
+  const search = new URLSearchParams(searchParams);
+  search.set("sort", sortKey);
+
   return (
     <th
       className={cn(headerCell, "text-right")}
       aria-sort={active ? "descending" : undefined}
     >
       <Link
-        to={{ search: `?sort=${sortKey}` }}
+        to={{ search: `?${search}` }}
         replace
         preventScrollReset
         className={cn(
@@ -101,7 +140,14 @@ function SortHeader({
 }
 
 export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
-  const { totals, sort, courses } = loaderData;
+  const { totals, sort, courses, trends } = loaderData;
+
+  const newUsers: TrendSeries[] = trends.newUsers.map(({ role, points }) => ({
+    key: role,
+    label: ROLE_SERIES[role].label,
+    color: ROLE_SERIES[role].color,
+    points,
+  }));
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -147,6 +193,82 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
             value={formatCount(totals.activeCourses)}
             detail={`${formatCount(totals.courses)} total including draft and archived`}
           />
+        </div>
+      </section>
+
+      {/* Trends — the Window scopes only this section */}
+      <section className="mt-10">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Trends</h2>
+            <p className="text-sm text-muted-foreground">
+              {trends.bucket === "day" ? "Daily" : "Weekly"} totals across the
+              platform
+            </p>
+          </div>
+          <WindowPicker value={trends.window} />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>New users</CardTitle>
+              <CardDescription>Signups by role</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                series={newUsers}
+                bucket={trends.bucket}
+                formatValue={formatCount}
+                emptyMessage="No signups yet."
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Revenue</CardTitle>
+              <CardDescription>Paid price per purchase</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                series={[
+                  {
+                    key: "revenue",
+                    label: "Revenue",
+                    color: "var(--chart-1)",
+                    points: trends.revenue,
+                  },
+                ]}
+                bucket={trends.bucket}
+                formatValue={formatUsd}
+                formatTick={formatUsdCompact}
+                emptyMessage="No purchases yet."
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Enrollments</CardTitle>
+              <CardDescription>New enrollments on any course</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TrendChart
+                series={[
+                  {
+                    key: "enrollments",
+                    label: "Enrollments",
+                    color: "var(--chart-2)",
+                    points: trends.enrollments,
+                  },
+                ]}
+                bucket={trends.bucket}
+                formatValue={(value) =>
+                  `${formatCount(value)} ${value === 1 ? "enrollment" : "enrollments"}`
+                }
+                formatTick={formatCount}
+                emptyMessage="No enrollments yet."
+              />
+            </CardContent>
+          </Card>
         </div>
       </section>
 

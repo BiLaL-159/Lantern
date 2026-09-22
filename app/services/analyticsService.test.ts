@@ -21,6 +21,9 @@ import {
   getInstructorRollup,
   getPlatformTotals,
   getTopCourses,
+  getPlatformRevenueTrend,
+  getPlatformEnrollmentTrend,
+  getNewUsersTrend,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -837,11 +840,187 @@ describe("analyticsService", () => {
     it("includes draft and archived courses", () => {
       makeCourse("draft", schema.CourseStatus.Draft);
       makeCourse("archived", schema.CourseStatus.Archived);
-      expect(getTopCourses("revenue").map((r) => r.title).sort()).toEqual([
-        "Test Course",
-        "archived",
-        "draft",
+      expect(
+        getTopCourses("revenue")
+          .map((r) => r.title)
+          .sort()
+      ).toEqual(["Test Course", "archived", "draft"]);
+    });
+  });
+
+  describe("getPlatformRevenueTrend", () => {
+    it("sums purchases across every course into the Window's buckets", () => {
+      const second = makeCourse("second");
+      const a = makeStudent("a@example.com");
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-22T09:00:00.000Z");
+      purchaseAt(a.id, second.id, 2500, "2026-09-22T11:00:00.000Z");
+      purchaseAt(a.id, second.id, 1000, "2026-09-01T00:00:00.000Z");
+      // Before the 30d Window opens: excluded from it.
+      purchaseAt(a.id, second.id, 700, "2026-08-23T23:59:59.000Z");
+
+      const trend = getPlatformRevenueTrend("30d", NOW);
+
+      expect(trend).toHaveLength(30);
+      expect(trend[8]).toEqual({
+        bucketStart: "2026-09-01T00:00:00.000Z",
+        value: 1000,
+      });
+      // Both of today's purchases, on either side of NOW, land in today.
+      expect(trend[29]).toEqual({
+        bucketStart: "2026-09-22T00:00:00.000Z",
+        value: 7499,
+      });
+      expect(trend.reduce((sum, point) => sum + point.value, 0)).toBe(8499);
+    });
+  });
+  describe("getPlatformEnrollmentTrend", () => {
+    it("counts enrollments across every course into weekly buckets", () => {
+      const second = makeCourse("second");
+      const [a, b] = ["a", "b"].map((n) => makeStudent(`${n}@example.com`));
+      // The 90d grid opens on Monday 2026-06-22 (see the course Trends).
+      enrollAt(a.id, base.course.id, "2026-06-22T00:00:00.000Z");
+      enrollAt(a.id, second.id, "2026-06-21T23:59:59.000Z"); // excluded
+      enrollAt(b.id, base.course.id, "2026-09-21T00:00:00.000Z");
+      enrollAt(b.id, second.id, "2026-09-22T09:00:00.000Z");
+
+      const trend = getPlatformEnrollmentTrend("90d", NOW);
+
+      expect(trend).toHaveLength(14);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-06-22T00:00:00.000Z",
+        value: 1,
+      });
+      // Both of this week's enrollments, on different courses, share a bucket.
+      expect(trend[13]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 2,
+      });
+      expect(trend.reduce((sum, point) => sum + point.value, 0)).toBe(3);
+    });
+
+    it("is empty all-time when nobody has enrolled", () => {
+      expect(getPlatformEnrollmentTrend("all", NOW)).toEqual([]);
+    });
+  });
+  describe("getNewUsersTrend", () => {
+    // seedBaseData stamps its student and instructor with the real clock,
+    // which would drift against NOW; pin them to a known instant instead.
+    function pinSeededUsersTo(iso: string) {
+      testDb.update(schema.users).set({ createdAt: iso }).run();
+    }
+
+    function makeUserAt(role: schema.UserRole, email: string, iso: string) {
+      return testDb
+        .insert(schema.users)
+        .values({ name: email, email, role, createdAt: iso })
+        .returning()
+        .get();
+    }
+
+    function pointsFor(
+      trend: ReturnType<typeof getNewUsersTrend>,
+      role: schema.UserRole
+    ) {
+      return trend.find((series) => series.role === role)!.points;
+    }
+
+    it("splits the last 30 days by role, with zeros for empty days", () => {
+      pinSeededUsersTo("2026-09-01T00:00:00.000Z");
+      makeUserAt(
+        schema.UserRole.Admin,
+        "admin@example.com",
+        "2026-09-22T09:00:00.000Z"
+      );
+      makeUserAt(
+        schema.UserRole.Student,
+        "late@example.com",
+        "2026-09-22T11:00:00.000Z"
+      );
+      // Signed up before the Window opens: excluded.
+      makeUserAt(
+        schema.UserRole.Instructor,
+        "old@example.com",
+        "2026-08-23T23:59:59.000Z"
+      );
+
+      const trend = getNewUsersTrend("30d", NOW);
+
+      expect(trend.map((series) => series.role)).toEqual([
+        schema.UserRole.Student,
+        schema.UserRole.Instructor,
+        schema.UserRole.Admin,
       ]);
+
+      const students = pointsFor(trend, schema.UserRole.Student);
+      expect(students).toHaveLength(30);
+      expect(students[8]).toEqual({
+        bucketStart: "2026-09-01T00:00:00.000Z",
+        value: 1,
+      });
+      expect(students[29]).toEqual({
+        bucketStart: "2026-09-22T00:00:00.000Z",
+        value: 1,
+      });
+      expect(students.filter((point) => point.value === 0)).toHaveLength(28);
+
+      // The instructor from outside the Window is not counted.
+      const instructors = pointsFor(trend, schema.UserRole.Instructor);
+      expect(instructors.reduce((sum, point) => sum + point.value, 0)).toBe(1);
+      expect(instructors[8].value).toBe(1);
+
+      const admins = pointsFor(trend, schema.UserRole.Admin);
+      expect(admins.reduce((sum, point) => sum + point.value, 0)).toBe(1);
+      expect(admins[29].value).toBe(1);
+    });
+
+    it("buckets the last 90 days into UTC weeks starting Monday", () => {
+      pinSeededUsersTo("2026-06-22T00:00:00.000Z");
+      makeUserAt(
+        schema.UserRole.Admin,
+        "admin@example.com",
+        "2026-09-21T00:00:00.000Z"
+      );
+
+      const trend = getNewUsersTrend("90d", NOW);
+
+      expect(pointsFor(trend, schema.UserRole.Student)).toHaveLength(14);
+      expect(pointsFor(trend, schema.UserRole.Student)[0]).toEqual({
+        bucketStart: "2026-06-22T00:00:00.000Z",
+        value: 1,
+      });
+      expect(pointsFor(trend, schema.UserRole.Admin)[13]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 1,
+      });
+      // Every role is reported over the same grid, even with no signups.
+      expect(pointsFor(trend, schema.UserRole.Admin)).toHaveLength(14);
+      expect(pointsFor(trend, schema.UserRole.Instructor)[0].value).toBe(1);
+    });
+
+    it("spans all-time weekly from the week of the first signup", () => {
+      pinSeededUsersTo("2026-03-04T12:00:00.000Z"); // Wednesday
+      makeUserAt(
+        schema.UserRole.Student,
+        "late@example.com",
+        "2026-09-22T09:00:00.000Z"
+      );
+
+      const trend = getNewUsersTrend("all", NOW);
+
+      const students = pointsFor(trend, schema.UserRole.Student);
+      expect(students).toHaveLength(30);
+      expect(students[0]).toEqual({
+        bucketStart: "2026-03-02T00:00:00.000Z",
+        value: 1,
+      });
+      expect(students[29]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 1,
+      });
+      // A role with no signups still spans the grid, all zeros.
+      const admins = pointsFor(trend, schema.UserRole.Admin);
+      expect(admins).toHaveLength(30);
+      expect(admins.every((point) => point.value === 0)).toBe(true);
     });
   });
 });
