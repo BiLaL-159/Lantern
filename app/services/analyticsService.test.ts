@@ -19,6 +19,8 @@ import {
   getCourseProgress,
   getCourseSentiment,
   getInstructorRollup,
+  getPlatformTotals,
+  getTopCourses,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -690,6 +692,7 @@ describe("analyticsService", () => {
           courseId: archived.id,
           title: "archived",
           status: schema.CourseStatus.Archived,
+          instructorName: "Test Instructor",
           revenue: 10000,
           enrollments: 1,
           completionRate: 0,
@@ -700,6 +703,7 @@ describe("analyticsService", () => {
           courseId: base.course.id,
           title: "Test Course",
           status: schema.CourseStatus.Published,
+          instructorName: "Test Instructor",
           revenue: 7499,
           enrollments: 3,
           completionRate: 33,
@@ -710,6 +714,7 @@ describe("analyticsService", () => {
           courseId: draft.id,
           title: "draft",
           status: schema.CourseStatus.Draft,
+          instructorName: "Test Instructor",
           revenue: 0,
           enrollments: 0,
           completionRate: 0,
@@ -735,6 +740,108 @@ describe("analyticsService", () => {
       const { totals } = getInstructorRollup(base.instructor.id);
       expect(totals.averageRating).toBeCloseTo(4.2);
       expect(totals.ratingCount).toBe(5);
+    });
+  });
+
+  describe("getPlatformTotals", () => {
+    it("returns zeros on an empty platform apart from the seeded users and course", () => {
+      expect(getPlatformTotals()).toEqual({
+        revenue: 0,
+        users: 2, // seedBaseData: one student, one instructor
+        enrollments: 0,
+        activeCourses: 1,
+        courses: 1,
+      });
+    });
+
+    it("counts archived courses in revenue and enrollments but not as active", () => {
+      const archived = makeCourse("archived", schema.CourseStatus.Archived);
+      makeCourse("draft", schema.CourseStatus.Draft);
+      const [a, b] = ["a", "b"].map((n) => makeStudent(`${n}@example.com`));
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-01T00:00:00.000Z");
+      purchaseAt(b.id, archived.id, 10000, "2026-01-01T00:00:00.000Z");
+      enrollUser(a.id, base.course.id, false, false);
+      enrollUser(b.id, archived.id, false, false);
+      enrollUser(a.id, archived.id, false, false);
+
+      expect(getPlatformTotals()).toEqual({
+        revenue: 14999,
+        users: 4,
+        enrollments: 3,
+        activeCourses: 1,
+        courses: 3,
+      });
+    });
+  });
+
+  describe("getTopCourses", () => {
+    function seedThreeCourses() {
+      const cheap = makeCourse("cheap");
+      const popular = makeCourse("popular", schema.CourseStatus.Archived);
+      const [a, b, c] = ["a", "b", "c"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      // base.course: most revenue, one enrollment, rated 3.
+      purchaseAt(a.id, base.course.id, 20000, "2026-09-01T00:00:00.000Z");
+      enrollUser(a.id, base.course.id, false, false);
+      upsertRating(a.id, base.course.id, 3);
+      // popular: three enrollments, rated 5 and 4.
+      purchaseAt(b.id, popular.id, 100, "2026-09-01T00:00:00.000Z");
+      for (const s of [a, b, c]) enrollUser(s.id, popular.id, false, false);
+      upsertRating(b.id, popular.id, 5);
+      upsertRating(c.id, popular.id, 4);
+      // cheap: some revenue, no enrollments, no ratings.
+      purchaseAt(c.id, cheap.id, 500, "2026-09-01T00:00:00.000Z");
+      return { cheap, popular };
+    }
+
+    it("sorts by revenue descending by default, with the instructor named", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("revenue");
+      expect(rows.map((r) => [r.courseId, r.revenue])).toEqual([
+        [base.course.id, 20000],
+        [cheap.id, 500],
+        [popular.id, 100],
+      ]);
+      expect(rows[0]).toMatchObject({
+        title: "Test Course",
+        status: schema.CourseStatus.Published,
+        instructorName: "Test Instructor",
+        enrollments: 1,
+        completionRate: 0,
+        averageRating: 3,
+        ratingCount: 1,
+      });
+    });
+
+    it("sorts by enrollments descending, breaking ties by title", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("enrollments");
+      expect(rows.map((r) => [r.courseId, r.enrollments])).toEqual([
+        [popular.id, 3],
+        [base.course.id, 1],
+        [cheap.id, 0],
+      ]);
+    });
+
+    it("sorts by average rating descending with unrated courses last", () => {
+      const { cheap, popular } = seedThreeCourses();
+      const rows = getTopCourses("rating");
+      expect(rows.map((r) => [r.courseId, r.averageRating])).toEqual([
+        [popular.id, 4.5],
+        [base.course.id, 3],
+        [cheap.id, null],
+      ]);
+    });
+
+    it("includes draft and archived courses", () => {
+      makeCourse("draft", schema.CourseStatus.Draft);
+      makeCourse("archived", schema.CourseStatus.Archived);
+      expect(getTopCourses("revenue").map((r) => r.title).sort()).toEqual([
+        "Test Course",
+        "archived",
+        "draft",
+      ]);
     });
   });
 });
