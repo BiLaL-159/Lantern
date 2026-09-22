@@ -17,6 +17,7 @@ import {
   getCourseRevenueTrend,
   getCourseEnrollmentTrend,
   getCourseProgress,
+  getCourseSentiment,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
@@ -24,6 +25,8 @@ import { enrollUser, markEnrollmentComplete } from "./enrollmentService";
 import { createModule } from "./moduleService";
 import { createLesson } from "./lessonService";
 import { markLessonComplete, markLessonInProgress } from "./progressService";
+import { upsertRating } from "./ratingService";
+import { createComment, softDeleteComment } from "./commentService";
 
 function makeStudent(email: string) {
   return testDb
@@ -530,6 +533,81 @@ describe("analyticsService", () => {
       const a = makeStudent("a@example.com");
       enrollUser(a.id, other.id, false, false);
       expect(getCourseReach(base.course.id).enrollments).toBe(0);
+    });
+  });
+
+  describe("getCourseSentiment", () => {
+    it("reports no average, an all-zero distribution and no comments for a fresh course", () => {
+      expect(getCourseSentiment(base.course.id)).toEqual({
+        average: null,
+        count: 0,
+        distribution: [
+          { rating: 5, count: 0 },
+          { rating: 4, count: 0 },
+          { rating: 3, count: 0 },
+          { rating: 2, count: 0 },
+          { rating: 1, count: 0 },
+        ],
+        comments: 0,
+      });
+    });
+
+    it("averages ratings and counts each star, highest first, with zeros for unused stars", () => {
+      const students = ["a", "b", "c", "d", "e"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      upsertRating(students[0].id, base.course.id, 5);
+      upsertRating(students[1].id, base.course.id, 5);
+      upsertRating(students[2].id, base.course.id, 4);
+      upsertRating(students[3].id, base.course.id, 1);
+      // Re-rating replaces the earlier rating rather than adding one.
+      upsertRating(students[4].id, base.course.id, 2);
+      upsertRating(students[4].id, base.course.id, 4);
+
+      const sentiment = getCourseSentiment(base.course.id);
+      expect(sentiment.average).toBeCloseTo(3.8);
+      expect(sentiment.count).toBe(5);
+      expect(sentiment.distribution).toEqual([
+        { rating: 5, count: 2 },
+        { rating: 4, count: 2 },
+        { rating: 3, count: 0 },
+        { rating: 2, count: 0 },
+        { rating: 1, count: 1 },
+      ]);
+    });
+
+    it("ignores ratings on other courses", () => {
+      const other = makeCourse("other");
+      const a = makeStudent("a@example.com");
+      upsertRating(a.id, other.id, 5);
+      const sentiment = getCourseSentiment(base.course.id);
+      expect(sentiment.average).toBeNull();
+      expect(sentiment.count).toBe(0);
+    });
+
+    it("counts comments across every lesson including replies, excluding deleted ones", () => {
+      const m1 = createModule(base.course.id, "M1", 1);
+      const m2 = createModule(base.course.id, "M2", 2);
+      const l1 = makeLesson(m1.id, "L1");
+      const l2 = makeLesson(m2.id, "L2");
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+
+      const top = createComment(a.id, l1.id, "Question");
+      createComment(b.id, l1.id, "Answer", top.id); // reply counts
+      createComment(a.id, l2.id, "Another lesson");
+      const gone = createComment(b.id, l2.id, "Removed");
+      softDeleteComment(gone.id);
+      // A reply under a deleted parent is still a live comment.
+      const parent = createComment(a.id, l2.id, "Parent");
+      createComment(b.id, l2.id, "Reply", parent.id);
+      softDeleteComment(parent.id);
+      // Comments on another course's lessons don't count.
+      const other = makeCourse("other");
+      const otherLesson = makeLesson(createModule(other.id, "M", 1).id, "L");
+      createComment(a.id, otherLesson.id, "Elsewhere");
+
+      expect(getCourseSentiment(base.course.id).comments).toBe(4);
     });
   });
 });
