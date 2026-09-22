@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "~/db";
 import { purchases, enrollments } from "~/db/schema";
 
@@ -42,4 +42,159 @@ export function getCourseReach(courseId: number) {
     .get();
 
   return { enrollments: row?.enrollments ?? 0 };
+}
+
+// ─── Trends ───
+
+export type TrendWindow = "30d" | "90d" | "all";
+
+export type TrendPoint = { bucketStart: string; value: number };
+
+export type TrendBucket = "day" | "week";
+
+/** The bucket size a Window's Trend is reported in. */
+export function trendBucketFor(window: TrendWindow): TrendBucket {
+  return window === "30d" ? "day" : "week";
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
+}
+
+// Weeks start on Monday, UTC.
+function startOfUtcWeek(date: Date): Date {
+  const day = startOfUtcDay(date);
+  const offset = (day.getUTCDay() + 6) % 7; // Monday → 0 … Sunday → 6
+  return new Date(day.getTime() - offset * DAY_MS);
+}
+
+type Bucketing = { first: Date; last: Date; size: number };
+
+/**
+ * The bucket grid for a Window. 30d is the last 30 days bucketed daily.
+ * 90d and all-time are bucketed weekly, so every bucket is a whole week:
+ * 90d starts from the week containing the day 90 days ago; all-time from
+ * the week of the earliest event, or null when there are no events.
+ */
+function bucketingFor(
+  window: TrendWindow,
+  now: Date,
+  earliest: string | null
+): Bucketing | null {
+  const today = startOfUtcDay(now);
+  if (window === "30d") {
+    return {
+      first: new Date(today.getTime() - 29 * DAY_MS),
+      last: today,
+      size: DAY_MS,
+    };
+  }
+  if (window === "90d") {
+    return {
+      first: startOfUtcWeek(new Date(today.getTime() - 89 * DAY_MS)),
+      last: startOfUtcWeek(today),
+      size: WEEK_MS,
+    };
+  }
+  if (earliest === null) return null;
+  return {
+    first: startOfUtcWeek(new Date(earliest)),
+    last: startOfUtcWeek(today),
+    size: WEEK_MS,
+  };
+}
+
+/**
+ * Sums `events` into the bucket grid, keyed by each bucket's UTC start.
+ * Buckets without events are present with a value of 0; events outside the
+ * grid are ignored.
+ */
+function bucketize(
+  events: { at: string; value: number }[],
+  { first, last, size }: Bucketing
+): TrendPoint[] {
+  const totals = new Map<number, number>();
+  for (let t = first.getTime(); t <= last.getTime(); t += size)
+    totals.set(t, 0);
+
+  for (const event of events) {
+    const offset = new Date(event.at).getTime() - first.getTime();
+    if (offset < 0) continue;
+    const key = first.getTime() + Math.floor(offset / size) * size;
+    if (totals.has(key)) totals.set(key, totals.get(key)! + event.value);
+  }
+
+  return [...totals].map(([t, value]) => ({
+    bucketStart: new Date(t).toISOString(),
+    value,
+  }));
+}
+
+/**
+ * Revenue Trend for a course: price paid, in cents, summed per bucket.
+ * 30d is bucketed daily; 90d and all-time weekly. Bucket boundaries are
+ * UTC; an event exactly on a boundary belongs to the bucket that starts
+ * there. All-time is empty when the course has no purchases.
+ */
+export function getCourseRevenueTrend(
+  courseId: number,
+  window: TrendWindow,
+  now: Date
+): TrendPoint[] {
+  const earliest = db
+    .select({ at: sql<string | null>`min(${purchases.createdAt})` })
+    .from(purchases)
+    .where(eq(purchases.courseId, courseId))
+    .get();
+  const bucketing = bucketingFor(window, now, earliest?.at ?? null);
+  if (!bucketing) return [];
+
+  const rows = db
+    .select({ at: purchases.createdAt, value: purchases.pricePaid })
+    .from(purchases)
+    .where(
+      and(
+        eq(purchases.courseId, courseId),
+        gte(purchases.createdAt, bucketing.first.toISOString())
+      )
+    )
+    .all();
+
+  return bucketize(rows, bucketing);
+}
+
+/**
+ * Enrollments Trend for a course: enrollments created per bucket, however
+ * they were created. Same bucketing rules as the revenue Trend.
+ */
+export function getCourseEnrollmentTrend(
+  courseId: number,
+  window: TrendWindow,
+  now: Date
+): TrendPoint[] {
+  const earliest = db
+    .select({ at: sql<string | null>`min(${enrollments.enrolledAt})` })
+    .from(enrollments)
+    .where(eq(enrollments.courseId, courseId))
+    .get();
+  const bucketing = bucketingFor(window, now, earliest?.at ?? null);
+  if (!bucketing) return [];
+
+  const rows = db
+    .select({ at: enrollments.enrolledAt, value: sql<number>`1` })
+    .from(enrollments)
+    .where(
+      and(
+        eq(enrollments.courseId, courseId),
+        gte(enrollments.enrolledAt, bucketing.first.toISOString())
+      )
+    )
+    .all();
+
+  return bucketize(rows, bucketing);
 }

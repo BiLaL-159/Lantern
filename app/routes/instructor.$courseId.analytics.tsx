@@ -1,10 +1,24 @@
 import { Link, isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.analytics";
 import { requireCourseAccess } from "~/lib/courseAccess";
-import { getCourseSales, getCourseReach } from "~/services/analyticsService";
-import { formatUsd } from "~/lib/utils";
-import { Card, CardContent } from "~/components/ui/card";
+import {
+  getCourseSales,
+  getCourseReach,
+  getCourseRevenueTrend,
+  getCourseEnrollmentTrend,
+  trendBucketFor,
+} from "~/services/analyticsService";
+import { formatUsd, formatUsdCompact } from "~/lib/utils";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
+import { TrendChart } from "~/components/trend-chart";
+import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -28,10 +42,19 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     notOwner: "You can only view analytics for your own courses.",
   });
 
+  const window = parseTrendWindow(new URL(request.url));
+  const now = new Date();
+
   const sales = getCourseSales(course.id);
   const reach = getCourseReach(course.id);
+  const trends = {
+    window,
+    bucket: trendBucketFor(window),
+    revenue: getCourseRevenueTrend(course.id, window, now),
+    enrollments: getCourseEnrollmentTrend(course.id, window, now),
+  };
 
-  return { course, sales, reach };
+  return { course, sales, reach, trends };
 }
 
 function SnapshotTile({
@@ -61,7 +84,7 @@ function SnapshotTile({
 export default function InstructorCourseAnalytics({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, sales, reach } = loaderData;
+  const { course, sales, reach, trends } = loaderData;
   const hasData = sales.purchases > 0 || reach.enrollments > 0;
 
   return (
@@ -72,10 +95,7 @@ export default function InstructorCourseAnalytics({
           My Courses
         </Link>
         <span className="mx-2">/</span>
-        <Link
-          to={`/instructor/${course.id}`}
-          className="hover:text-foreground"
-        >
+        <Link to={`/instructor/${course.id}`} className="hover:text-foreground">
           {course.title}
         </Link>
         <span className="mx-2">/</span>
@@ -106,18 +126,69 @@ export default function InstructorCourseAnalytics({
       </div>
 
       {hasData ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SnapshotTile
-            icon={DollarSign}
-            label="Revenue"
-            value={formatUsd(sales.revenue)}
-          />
-          <SnapshotTile
-            icon={Users}
-            label="Enrollments"
-            value={reach.enrollments.toLocaleString("en-US")}
-          />
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SnapshotTile
+              icon={DollarSign}
+              label="Revenue"
+              value={formatUsd(sales.revenue)}
+            />
+            <SnapshotTile
+              icon={Users}
+              label="Enrollments"
+              value={reach.enrollments.toLocaleString("en-US")}
+            />
+          </div>
+
+          {/* Trends — the Window scopes only this section */}
+          <section className="mt-10">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">Trends</h2>
+                <p className="text-sm text-muted-foreground">
+                  {trends.bucket === "day" ? "Daily" : "Weekly"} totals
+                </p>
+              </div>
+              <WindowPicker value={trends.window} />
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Revenue</CardTitle>
+                  <CardDescription>Paid price per purchase</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TrendChart
+                    data={trends.revenue}
+                    bucket={trends.bucket}
+                    formatValue={formatUsd}
+                    formatTick={formatUsdCompact}
+                    color="var(--chart-1)"
+                    emptyMessage="No purchases yet."
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Enrollments</CardTitle>
+                  <CardDescription>New enrollments</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TrendChart
+                    data={trends.enrollments}
+                    bucket={trends.bucket}
+                    formatValue={(v) =>
+                      `${v.toLocaleString("en-US")} ${v === 1 ? "enrollment" : "enrollments"}`
+                    }
+                    formatTick={(v) => v.toLocaleString("en-US")}
+                    color="var(--chart-2)"
+                    emptyMessage="No enrollments yet."
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+        </>
       ) : (
         <Card>
           <CardContent className="py-8 text-center">
