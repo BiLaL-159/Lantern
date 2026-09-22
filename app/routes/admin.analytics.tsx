@@ -9,11 +9,16 @@ import {
   type CourseSort,
 } from "~/services/analyticsService";
 import { UserRole } from "~/db/schema";
-import { cn, formatCount, formatRating, formatUsd } from "~/lib/utils";
+import { cn, formatCount, formatUsd } from "~/lib/utils";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { SnapshotTile } from "~/components/snapshot-tile";
-import { CourseStatusBadge } from "~/components/course-status-badge";
+import {
+  CourseTitleCell,
+  RatingCell,
+  headerCell,
+  numberCell,
+} from "~/components/course-table";
 import {
   AlertTriangle,
   ArrowDown,
@@ -59,9 +64,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     courses: getTopCourses(sort),
   };
 }
-
-const headerCell =
-  "px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground";
 
 // A right-aligned column header that sorts the table by its key.
 function SortHeader({
@@ -191,34 +193,20 @@ export default function AdminAnalytics({ loaderData }: Route.ComponentProps) {
                         key={course.courseId}
                         className="border-b border-border last:border-0"
                       >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Link
-                              to={`/instructor/${course.courseId}/analytics`}
-                              className="text-sm font-medium hover:text-primary"
-                            >
-                              {course.title}
-                            </Link>
-                            <CourseStatusBadge status={course.status} />
-                          </div>
-                        </td>
+                        <CourseTitleCell course={course} />
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           {course.instructorName}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm tabular-nums">
+                        <td className={numberCell}>
                           {formatUsd(course.revenue)}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm tabular-nums">
+                        <td className={numberCell}>
                           {formatCount(course.enrollments)}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm tabular-nums">
-                          {formatRating(course.averageRating)}
-                          {course.ratingCount > 0 && (
-                            <span className="ml-1 text-xs text-muted-foreground">
-                              ({formatCount(course.ratingCount)})
-                            </span>
-                          )}
-                        </td>
+                        <RatingCell
+                          average={course.averageRating}
+                          count={course.ratingCount}
+                        />
                       </tr>
                     ))}
                   </tbody>

@@ -4,11 +4,16 @@ import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { getInstructorRollup } from "~/services/analyticsService";
 import { UserRole } from "~/db/schema";
-import { formatCount, formatRating, formatUsd } from "~/lib/utils";
+import { cn, formatCount, formatRating, formatUsd } from "~/lib/utils";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { SnapshotTile } from "~/components/snapshot-tile";
-import { CourseStatusBadge } from "~/components/course-status-badge";
+import {
+  CourseTitleCell,
+  RatingCell,
+  headerCell,
+  numberCell,
+} from "~/components/course-table";
 import {
   AlertTriangle,
   BarChart3,
@@ -42,9 +47,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return getInstructorRollup(user.id);
 }
-
-const headerCell =
-  "px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground";
 
 export default function InstructorAnalytics({
   loaderData,
@@ -131,15 +133,17 @@ export default function InstructorAnalytics({
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
-                        <th className={`${headerCell} text-left`}>Course</th>
-                        <th className={`${headerCell} text-right`}>Revenue</th>
-                        <th className={`${headerCell} text-right`}>
+                        <th className={cn(headerCell, "text-left")}>Course</th>
+                        <th className={cn(headerCell, "text-right")}>
+                          Revenue
+                        </th>
+                        <th className={cn(headerCell, "text-right")}>
                           Enrollments
                         </th>
-                        <th className={`${headerCell} text-right`}>
+                        <th className={cn(headerCell, "text-right")}>
                           Completion
                         </th>
-                        <th className={`${headerCell} text-right`}>Rating</th>
+                        <th className={cn(headerCell, "text-right")}>Rating</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -148,34 +152,20 @@ export default function InstructorAnalytics({
                           key={course.courseId}
                           className="border-b border-border last:border-0"
                         >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <Link
-                                to={`/instructor/${course.courseId}/analytics`}
-                                className="text-sm font-medium hover:text-primary"
-                              >
-                                {course.title}
-                              </Link>
-                              <CourseStatusBadge status={course.status} />
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right text-sm tabular-nums">
+                          <CourseTitleCell course={course} />
+                          <td className={numberCell}>
                             {formatUsd(course.revenue)}
                           </td>
-                          <td className="px-4 py-3 text-right text-sm tabular-nums">
+                          <td className={numberCell}>
                             {formatCount(course.enrollments)}
                           </td>
-                          <td className="px-4 py-3 text-right text-sm tabular-nums">
+                          <td className={numberCell}>
                             {course.completionRate}%
                           </td>
-                          <td className="px-4 py-3 text-right text-sm tabular-nums">
-                            {formatRating(course.averageRating)}
-                            {course.ratingCount > 0 && (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                ({formatCount(course.ratingCount)})
-                              </span>
-                            )}
-                          </td>
+                          <RatingCell
+                            average={course.averageRating}
+                            count={course.ratingCount}
+                          />
                         </tr>
                       ))}
                     </tbody>
