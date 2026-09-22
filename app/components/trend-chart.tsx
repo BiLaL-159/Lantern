@@ -7,7 +7,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { TrendBucket, TrendPoint } from "~/services/analyticsService";
+import type { TrendBucket, TrendPoint } from "~/lib/trends";
 import { AXIS_TICK, ChartTooltip } from "./chart-primitives";
 
 // ─── Trend Chart ───
