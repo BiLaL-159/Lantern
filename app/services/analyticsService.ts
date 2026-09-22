@@ -249,7 +249,6 @@ export type CourseSummary = {
   courseId: number;
   title: string;
   status: CourseStatus;
-  instructorId: number;
   instructorName: string;
   /** Sum of price paid across the course's purchases, in cents. */
   revenue: number;
@@ -291,7 +290,6 @@ function summarizeCourses(where: SQL | undefined) {
       courseId: courses.id,
       title: courses.title,
       status: courses.status,
-      instructorId: courses.instructorId,
       instructorName: users.name,
       revenue,
       enrollments: perCourse(enrollments, enrollments.courseId, sql`count(*)`),
