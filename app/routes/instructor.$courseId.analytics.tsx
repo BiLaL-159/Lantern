@@ -1,16 +1,37 @@
+import type { ReactNode } from "react";
 import { Link, isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.analytics";
 import { requireCourseAccess } from "~/lib/courseAccess";
-import { getCourseSales, getCourseReach } from "~/services/analyticsService";
-import { formatUsd } from "~/lib/utils";
-import { Card, CardContent } from "~/components/ui/card";
+import {
+  getCourseSales,
+  getCourseReach,
+  getCourseRevenueTrend,
+  getCourseEnrollmentTrend,
+  getCourseProgress,
+  trendBucketFor,
+} from "~/services/analyticsService";
+import { formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
+import { TrendChart } from "~/components/trend-chart";
+import { DropOffFunnel } from "~/components/drop-off-funnel";
+import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  CheckCircle,
   DollarSign,
+  ShoppingCart,
+  Ticket,
   Users,
+  UserX,
 } from "lucide-react";
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
@@ -28,20 +49,52 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     notOwner: "You can only view analytics for your own courses.",
   });
 
+  const trendWindow = parseTrendWindow(new URL(request.url));
+  const now = new Date();
+
   const sales = getCourseSales(course.id);
   const reach = getCourseReach(course.id);
+  const progress = getCourseProgress(course.id);
+  const trends = {
+    window: trendWindow,
+    bucket: trendBucketFor(trendWindow),
+    revenue: getCourseRevenueTrend(course.id, trendWindow, now),
+    enrollments: getCourseEnrollmentTrend(course.id, trendWindow, now),
+  };
 
-  return { course, sales, reach };
+  return { course, sales, reach, progress, trends };
+}
+
+function SectionHeading({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h2 className="text-xl font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
 }
 
 function SnapshotTile({
   icon: Icon,
   label,
   value,
+  detail,
 }: {
   icon: typeof DollarSign;
   label: string;
   value: string;
+  detail?: string;
 }) {
   return (
     <Card>
@@ -52,6 +105,7 @@ function SnapshotTile({
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold">{value}</p>
+          {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
         </div>
       </CardContent>
     </Card>
@@ -61,7 +115,7 @@ function SnapshotTile({
 export default function InstructorCourseAnalytics({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, sales, reach } = loaderData;
+  const { course, sales, reach, progress, trends } = loaderData;
   const hasData = sales.purchases > 0 || reach.enrollments > 0;
 
   return (
@@ -72,10 +126,7 @@ export default function InstructorCourseAnalytics({
           My Courses
         </Link>
         <span className="mx-2">/</span>
-        <Link
-          to={`/instructor/${course.id}`}
-          className="hover:text-foreground"
-        >
+        <Link to={`/instructor/${course.id}`} className="hover:text-foreground">
           {course.title}
         </Link>
         <span className="mx-2">/</span>
@@ -106,18 +157,125 @@ export default function InstructorCourseAnalytics({
       </div>
 
       {hasData ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SnapshotTile
-            icon={DollarSign}
-            label="Revenue"
-            value={formatUsd(sales.revenue)}
-          />
-          <SnapshotTile
-            icon={Users}
-            label="Enrollments"
-            value={reach.enrollments.toLocaleString("en-US")}
-          />
-        </div>
+        <>
+          {/* Sales */}
+          <section>
+            <SectionHeading title="Sales" subtitle="All-time" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SnapshotTile
+                icon={DollarSign}
+                label="Revenue"
+                value={formatUsd(sales.revenue)}
+                detail="After PPP discounts"
+              />
+              <SnapshotTile
+                icon={ShoppingCart}
+                label="Purchases"
+                value={formatCount(sales.purchases)}
+                detail={`${formatCount(sales.individualPurchases)} individual · ${formatCount(sales.teamPurchases)} team`}
+              />
+            </div>
+          </section>
+
+          {/* Reach */}
+          <section className="mt-10">
+            <SectionHeading title="Reach" subtitle="All-time" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <SnapshotTile
+                icon={Users}
+                label="Enrollments"
+                value={formatCount(reach.enrollments)}
+              />
+              <SnapshotTile
+                icon={UserX}
+                label="Not started"
+                value={formatCount(reach.notStarted)}
+                detail={`${reach.notStartedPercent}% of enrollments never opened a lesson`}
+              />
+              {sales.teamPurchases > 0 && (
+                <SnapshotTile
+                  icon={Ticket}
+                  label="Team seats redeemed"
+                  value={`${formatCount(reach.seatsRedeemed)} of ${formatCount(reach.seatsSold)}`}
+                  detail={`${formatCount(reach.seatsSold - reach.seatsRedeemed)} paid-for seats unused`}
+                />
+              )}
+            </div>
+          </section>
+
+          {/* Trends — the Window scopes only this section */}
+          <section className="mt-10">
+            <SectionHeading
+              title="Trends"
+              subtitle={`${trends.bucket === "day" ? "Daily" : "Weekly"} totals`}
+              action={<WindowPicker value={trends.window} />}
+            />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Revenue</CardTitle>
+                  <CardDescription>Paid price per purchase</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TrendChart
+                    data={trends.revenue}
+                    bucket={trends.bucket}
+                    formatValue={formatUsd}
+                    formatTick={formatUsdCompact}
+                    color="var(--chart-1)"
+                    emptyMessage="No purchases yet."
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Enrollments</CardTitle>
+                  <CardDescription>New enrollments</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TrendChart
+                    data={trends.enrollments}
+                    bucket={trends.bucket}
+                    formatValue={(v) =>
+                      `${formatCount(v)} ${v === 1 ? "enrollment" : "enrollments"}`
+                    }
+                    formatTick={formatCount}
+                    color="var(--chart-2)"
+                    emptyMessage="No enrollments yet."
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+
+          {/* Progress */}
+          <section className="mt-10">
+            <SectionHeading title="Progress" subtitle="All-time" />
+            <div className="mb-4 grid gap-4 sm:grid-cols-2">
+              <SnapshotTile
+                icon={CheckCircle}
+                label="Completion rate"
+                value={`${progress.completionRate}%`}
+                detail={`${formatCount(progress.completed)} of ${formatCount(progress.enrollments)} enrolled finished the course`}
+              />
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Drop-off</CardTitle>
+                <CardDescription>
+                  Share of all enrolled students who completed each lesson, in
+                  course order
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DropOffFunnel
+                  steps={progress.dropOff}
+                  enrolled={progress.enrollments}
+                />
+              </CardContent>
+            </Card>
+          </section>
+        </>
       ) : (
         <Card>
           <CardContent className="py-8 text-center">
