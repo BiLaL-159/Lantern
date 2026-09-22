@@ -11,7 +11,12 @@ vi.mock("~/db", () => ({
   },
 }));
 
-import { getCourseSales, getCourseReach } from "./analyticsService";
+import {
+  getCourseSales,
+  getCourseReach,
+  getCourseRevenueTrend,
+  getCourseEnrollmentTrend,
+} from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
 import { enrollUser } from "./enrollmentService";
@@ -40,10 +45,173 @@ function makeCourse(slug: string, status = schema.CourseStatus.Published) {
     .get();
 }
 
+function purchaseAt(
+  userId: number,
+  courseId: number,
+  cents: number,
+  iso: string
+) {
+  return testDb
+    .insert(schema.purchases)
+    .values({
+      userId,
+      courseId,
+      pricePaid: cents,
+      country: "US",
+      createdAt: iso,
+    })
+    .returning()
+    .get();
+}
+
+function enrollAt(userId: number, courseId: number, iso: string) {
+  return testDb
+    .insert(schema.enrollments)
+    .values({ userId, courseId, enrolledAt: iso })
+    .returning()
+    .get();
+}
+
+const NOW = new Date("2026-09-22T10:00:00.000Z");
+
 describe("analyticsService", () => {
   beforeEach(() => {
     testDb = createTestDb();
     base = seedBaseData(testDb);
+  });
+
+  describe("getCourseRevenueTrend", () => {
+    it("buckets the last 30 days daily with zeros for empty days", () => {
+      const a = makeStudent("a@example.com");
+      purchaseAt(a.id, base.course.id, 4999, "2026-09-22T09:00:00.000Z");
+      // Exactly on a bucket boundary: belongs to that day, not the day before.
+      purchaseAt(a.id, base.course.id, 2500, "2026-09-01T00:00:00.000Z");
+      // One second before the window opens: excluded.
+      purchaseAt(a.id, base.course.id, 1000, "2026-08-23T23:59:59.000Z");
+
+      const trend = getCourseRevenueTrend(base.course.id, "30d", NOW);
+
+      expect(trend).toHaveLength(30);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-08-24T00:00:00.000Z",
+        value: 0,
+      });
+      expect(trend[8]).toEqual({
+        bucketStart: "2026-09-01T00:00:00.000Z",
+        value: 2500,
+      });
+      expect(trend[29]).toEqual({
+        bucketStart: "2026-09-22T00:00:00.000Z",
+        value: 4999,
+      });
+      expect(trend.reduce((sum, p) => sum + p.value, 0)).toBe(7499);
+    });
+
+    it("buckets the last 90 days into UTC weeks starting Monday", () => {
+      const a = makeStudent("a@example.com");
+      // NOW is Tuesday 2026-09-22; 89 days earlier is Thursday 2026-06-25,
+      // whose week starts Monday 2026-06-22.
+      purchaseAt(a.id, base.course.id, 100, "2026-06-22T00:00:00.000Z");
+      purchaseAt(a.id, base.course.id, 7, "2026-06-21T23:59:59.000Z"); // excluded
+      purchaseAt(a.id, base.course.id, 200, "2026-09-20T23:59:59.000Z"); // Sunday
+      purchaseAt(a.id, base.course.id, 300, "2026-09-21T00:00:00.000Z"); // Monday
+
+      const trend = getCourseRevenueTrend(base.course.id, "90d", NOW);
+
+      expect(trend).toHaveLength(14);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-06-22T00:00:00.000Z",
+        value: 100,
+      });
+      expect(trend[12]).toEqual({
+        bucketStart: "2026-09-14T00:00:00.000Z",
+        value: 200,
+      });
+      expect(trend[13]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 300,
+      });
+      expect(trend.reduce((sum, p) => sum + p.value, 0)).toBe(600);
+    });
+
+    it("spans all-time weekly from the week of the first purchase", () => {
+      const a = makeStudent("a@example.com");
+      purchaseAt(a.id, base.course.id, 100, "2026-03-04T12:00:00.000Z"); // Wed
+      purchaseAt(a.id, base.course.id, 200, "2026-09-22T09:00:00.000Z");
+
+      const trend = getCourseRevenueTrend(base.course.id, "all", NOW);
+
+      expect(trend).toHaveLength(30);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-03-02T00:00:00.000Z",
+        value: 100,
+      });
+      expect(trend[29]).toEqual({
+        bucketStart: "2026-09-21T00:00:00.000Z",
+        value: 200,
+      });
+      expect(trend.filter((p) => p.value === 0)).toHaveLength(28);
+    });
+
+    it("is empty all-time when the course has no purchases", () => {
+      expect(getCourseRevenueTrend(base.course.id, "all", NOW)).toEqual([]);
+    });
+
+    it("ignores purchases of other courses", () => {
+      const other = makeCourse("other");
+      const a = makeStudent("a@example.com");
+      purchaseAt(a.id, other.id, 4999, "2026-09-22T09:00:00.000Z");
+      const trend = getCourseRevenueTrend(base.course.id, "30d", NOW);
+      expect(trend.every((p) => p.value === 0)).toBe(true);
+    });
+  });
+
+  describe("getCourseEnrollmentTrend", () => {
+    it("counts enrollments per day over 30d, whatever created them", () => {
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+      const c = makeStudent("c@example.com");
+      enrollAt(a.id, base.course.id, "2026-09-22T01:00:00.000Z");
+      enrollAt(b.id, base.course.id, "2026-09-22T08:00:00.000Z");
+      enrollAt(c.id, base.course.id, "2026-08-24T00:00:00.000Z");
+      const other = makeCourse("other");
+      enrollAt(a.id, other.id, "2026-09-22T01:00:00.000Z");
+
+      const trend = getCourseEnrollmentTrend(base.course.id, "30d", NOW);
+
+      expect(trend).toHaveLength(30);
+      expect(trend[0]).toEqual({
+        bucketStart: "2026-08-24T00:00:00.000Z",
+        value: 1,
+      });
+      expect(trend[29]).toEqual({
+        bucketStart: "2026-09-22T00:00:00.000Z",
+        value: 2,
+      });
+      expect(trend.reduce((sum, p) => sum + p.value, 0)).toBe(3);
+    });
+
+    it("spans all-time weekly from the week of the first enrollment", () => {
+      const a = makeStudent("a@example.com");
+      const b = makeStudent("b@example.com");
+      enrollAt(a.id, base.course.id, "2026-08-30T12:00:00.000Z"); // Sunday
+      enrollAt(b.id, base.course.id, "2026-09-22T09:00:00.000Z");
+
+      const trend = getCourseEnrollmentTrend(base.course.id, "all", NOW);
+
+      expect(trend.map((p) => p.bucketStart)).toEqual([
+        "2026-08-24T00:00:00.000Z",
+        "2026-08-31T00:00:00.000Z",
+        "2026-09-07T00:00:00.000Z",
+        "2026-09-14T00:00:00.000Z",
+        "2026-09-21T00:00:00.000Z",
+      ]);
+      expect(trend.map((p) => p.value)).toEqual([1, 0, 0, 0, 1]);
+    });
+
+    it("is empty all-time when the course has no enrollments", () => {
+      expect(getCourseEnrollmentTrend(base.course.id, "all", NOW)).toEqual([]);
+    });
   });
 
   describe("getCourseSales", () => {
