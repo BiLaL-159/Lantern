@@ -1,5 +1,5 @@
-import { Link } from "react-router";
-import { cn } from "~/lib/utils";
+import { Link, useSearchParams } from "react-router";
+import { cn, withSearchParam } from "~/lib/utils";
 import { TREND_WINDOWS, type TrendWindow } from "~/services/analyticsService";
 
 // ─── Window Picker ───
@@ -19,6 +19,9 @@ export function parseTrendWindow(url: URL): TrendWindow {
 }
 
 export function WindowPicker({ value }: { value: TrendWindow }) {
+  // Platform Health also sorts by a search param; keep it.
+  const [searchParams] = useSearchParams();
+
   return (
     <div
       role="group"
@@ -28,7 +31,7 @@ export function WindowPicker({ value }: { value: TrendWindow }) {
       {TREND_WINDOWS.map((trendWindow) => (
         <Link
           key={trendWindow}
-          to={{ search: `?window=${trendWindow}` }}
+          to={{ search: withSearchParam(searchParams, "window", trendWindow) }}
           replace
           preventScrollReset
           aria-current={trendWindow === value ? "true" : undefined}

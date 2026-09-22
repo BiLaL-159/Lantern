@@ -13,6 +13,7 @@ import {
 } from "~/services/analyticsService";
 import {
   formatCount,
+  formatEnrollments,
   formatRating,
   formatUsd,
   formatUsdCompact,
@@ -25,7 +26,11 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
-import { TrendChart } from "~/components/trend-chart";
+import {
+  TrendChart,
+  enrollmentSeries,
+  revenueSeries,
+} from "~/components/trend-chart";
 import { DropOffFunnel } from "~/components/drop-off-funnel";
 import { SnapshotTile } from "~/components/snapshot-tile";
 import { RatingDistribution } from "~/components/rating-distribution";
@@ -202,11 +207,10 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    data={trends.revenue}
+                    series={[revenueSeries(trends.revenue)]}
                     bucket={trends.bucket}
                     formatValue={formatUsd}
                     formatTick={formatUsdCompact}
-                    color="var(--chart-1)"
                     emptyMessage="No purchases yet."
                   />
                 </CardContent>
@@ -218,13 +222,10 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    data={trends.enrollments}
+                    series={[enrollmentSeries(trends.enrollments)]}
                     bucket={trends.bucket}
-                    formatValue={(v) =>
-                      `${formatCount(v)} ${v === 1 ? "enrollment" : "enrollments"}`
-                    }
+                    formatValue={formatEnrollments}
                     formatTick={formatCount}
-                    color="var(--chart-2)"
                     emptyMessage="No enrollments yet."
                   />
                 </CardContent>
