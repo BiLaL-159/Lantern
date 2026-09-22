@@ -8,9 +8,14 @@ import {
   enrollments,
   LessonProgressStatus,
 } from "~/db/schema";
+import {
+  findEnrollment,
+  markEnrollmentComplete,
+} from "./enrollmentService";
 
 // ─── Progress Service ───
 // Handles lesson completion tracking and course progress calculation.
+// Course completion is recorded here, not derived on read (ADR-0001).
 // Uses positional parameters (project convention).
 
 export function getLessonProgress(userId: number, lessonId: number) {
@@ -58,28 +63,67 @@ export function getLessonProgressForCourse(userId: number, courseId: number) {
 export function markLessonComplete(userId: number, lessonId: number) {
   const existing = getLessonProgress(userId, lessonId);
 
-  if (existing) {
-    return db
-      .update(lessonProgress)
-      .set({
-        status: LessonProgressStatus.Completed,
-        completedAt: new Date().toISOString(),
-      })
-      .where(eq(lessonProgress.id, existing.id))
-      .returning()
-      .get();
-  }
+  const progress = existing
+    ? db
+        .update(lessonProgress)
+        .set({
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .where(eq(lessonProgress.id, existing.id))
+        .returning()
+        .get()
+    : db
+        .insert(lessonProgress)
+        .values({
+          userId,
+          lessonId,
+          status: LessonProgressStatus.Completed,
+          completedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
 
-  return db
-    .insert(lessonProgress)
-    .values({
-      userId,
-      lessonId,
-      status: LessonProgressStatus.Completed,
-      completedAt: new Date().toISOString(),
-    })
-    .returning()
+  recordCourseCompletionIfEarned(userId, lessonId);
+
+  return progress;
+}
+
+// Stamps the enrollment's completedAt once every lesson of the lesson's
+// course has a completed progress row for the user. Idempotent: an existing
+// stamp is never overwritten, so adding lessons later leaves it intact.
+function recordCourseCompletionIfEarned(userId: number, lessonId: number) {
+  const parent = db
+    .select({ courseId: modules.courseId })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(lessons.id, lessonId))
     .get();
+  if (!parent) return;
+  const { courseId } = parent;
+
+  const enrollment = findEnrollment(userId, courseId);
+  if (!enrollment || enrollment.completedAt) return;
+
+  const lessonIds = getCourseLessonIds(courseId);
+  if (lessonIds.length === 0) return;
+
+  // Distinct, so duplicate progress rows for one lesson can't stand in for
+  // another lesson that is still incomplete.
+  const completed = db
+    .select({ count: sql<number>`count(distinct ${lessonProgress.lessonId})` })
+    .from(lessonProgress)
+    .where(
+      and(
+        eq(lessonProgress.userId, userId),
+        eq(lessonProgress.status, LessonProgressStatus.Completed),
+        or(...lessonIds.map((id) => eq(lessonProgress.lessonId, id)))!
+      )
+    )
+    .get();
+  if ((completed?.count ?? 0) < lessonIds.length) return;
+
+  markEnrollmentComplete(userId, courseId);
 }
 
 export function markLessonInProgress(userId: number, lessonId: number) {
