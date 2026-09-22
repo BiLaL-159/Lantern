@@ -27,7 +27,10 @@ import {
   BarChart3,
   CheckCircle,
   DollarSign,
+  ShoppingCart,
+  Ticket,
   Users,
+  UserX,
 } from "lucide-react";
 
 export function meta({ data: loaderData }: Route.MetaArgs) {
@@ -59,6 +62,21 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   };
 
   return { course, sales, reach, progress, trends };
+}
+
+function SectionHeading({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-xl font-semibold">{title}</h2>
+      <p className="text-sm text-muted-foreground">{subtitle}</p>
+    </div>
+  );
 }
 
 function SnapshotTile({
@@ -134,24 +152,50 @@ export default function InstructorCourseAnalytics({
 
       {hasData ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SnapshotTile
-              icon={DollarSign}
-              label="Revenue"
-              value={formatUsd(sales.revenue)}
-            />
-            <SnapshotTile
-              icon={Users}
-              label="Enrollments"
-              value={reach.enrollments.toLocaleString("en-US")}
-            />
-            <SnapshotTile
-              icon={CheckCircle}
-              label="Completion rate"
-              value={`${progress.completionRate}%`}
-              detail={`${progress.completed.toLocaleString("en-US")} of ${progress.enrollments.toLocaleString("en-US")} enrolled`}
-            />
-          </div>
+          {/* Sales */}
+          <section>
+            <SectionHeading title="Sales" subtitle="All-time" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SnapshotTile
+                icon={DollarSign}
+                label="Revenue"
+                value={formatUsd(sales.revenue)}
+                detail="After PPP discounts"
+              />
+              <SnapshotTile
+                icon={ShoppingCart}
+                label="Purchases"
+                value={sales.purchases.toLocaleString("en-US")}
+                detail={`${sales.individualPurchases.toLocaleString("en-US")} individual · ${sales.teamPurchases.toLocaleString("en-US")} team`}
+              />
+            </div>
+          </section>
+
+          {/* Reach */}
+          <section className="mt-10">
+            <SectionHeading title="Reach" subtitle="All-time" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <SnapshotTile
+                icon={Users}
+                label="Enrollments"
+                value={reach.enrollments.toLocaleString("en-US")}
+              />
+              <SnapshotTile
+                icon={UserX}
+                label="Not started"
+                value={reach.notStarted.toLocaleString("en-US")}
+                detail={`${reach.notStartedPercent}% of enrollments never opened a lesson`}
+              />
+              {sales.teamPurchases > 0 && (
+                <SnapshotTile
+                  icon={Ticket}
+                  label="Team seats redeemed"
+                  value={`${reach.seatsRedeemed.toLocaleString("en-US")} of ${reach.seatsSold.toLocaleString("en-US")}`}
+                  detail={`${(reach.seatsSold - reach.seatsRedeemed).toLocaleString("en-US")} paid-for seats unused`}
+                />
+              )}
+            </div>
+          </section>
 
           {/* Trends — the Window scopes only this section */}
           <section className="mt-10">
@@ -204,11 +248,14 @@ export default function InstructorCourseAnalytics({
 
           {/* Progress */}
           <section className="mt-10">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold">Progress</h2>
-              <p className="text-sm text-muted-foreground">
-                Where students stop
-              </p>
+            <SectionHeading title="Progress" subtitle="All-time" />
+            <div className="mb-4 grid gap-4 sm:grid-cols-2">
+              <SnapshotTile
+                icon={CheckCircle}
+                label="Completion rate"
+                value={`${progress.completionRate}%`}
+                detail={`${progress.completed.toLocaleString("en-US")} of ${progress.enrollments.toLocaleString("en-US")} enrolled finished the course`}
+              />
             </div>
             <Card>
               <CardHeader>
