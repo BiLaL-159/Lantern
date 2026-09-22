@@ -202,11 +202,17 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    data={trends.revenue}
+                    series={[
+                      {
+                        key: "revenue",
+                        label: "Revenue",
+                        color: "var(--chart-1)",
+                        points: trends.revenue,
+                      },
+                    ]}
                     bucket={trends.bucket}
                     formatValue={formatUsd}
                     formatTick={formatUsdCompact}
-                    color="var(--chart-1)"
                     emptyMessage="No purchases yet."
                   />
                 </CardContent>
@@ -218,13 +224,19 @@ export default function InstructorCourseAnalytics({
                 </CardHeader>
                 <CardContent>
                   <TrendChart
-                    data={trends.enrollments}
+                    series={[
+                      {
+                        key: "enrollments",
+                        label: "Enrollments",
+                        color: "var(--chart-2)",
+                        points: trends.enrollments,
+                      },
+                    ]}
                     bucket={trends.bucket}
                     formatValue={(v) =>
                       `${formatCount(v)} ${v === 1 ? "enrollment" : "enrollments"}`
                     }
                     formatTick={formatCount}
-                    color="var(--chart-2)"
                     emptyMessage="No enrollments yet."
                   />
                 </CardContent>
