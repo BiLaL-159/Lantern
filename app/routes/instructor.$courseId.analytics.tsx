@@ -8,6 +8,7 @@ import {
   getCourseRevenueTrend,
   getCourseEnrollmentTrend,
   getCourseProgress,
+  getCourseSentiment,
   trendBucketFor,
 } from "~/services/analyticsService";
 import { formatCount, formatUsd, formatUsdCompact } from "~/lib/utils";
@@ -21,6 +22,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { TrendChart } from "~/components/trend-chart";
 import { DropOffFunnel } from "~/components/drop-off-funnel";
+import { RatingDistribution } from "~/components/rating-distribution";
 import { WindowPicker, parseTrendWindow } from "~/components/window-picker";
 import {
   AlertTriangle,
@@ -28,7 +30,9 @@ import {
   BarChart3,
   CheckCircle,
   DollarSign,
+  MessageSquare,
   ShoppingCart,
+  Star,
   Ticket,
   Users,
   UserX,
@@ -55,6 +59,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const sales = getCourseSales(course.id);
   const reach = getCourseReach(course.id);
   const progress = getCourseProgress(course.id);
+  const sentiment = getCourseSentiment(course.id);
   const trends = {
     window: trendWindow,
     bucket: trendBucketFor(trendWindow),
@@ -62,7 +67,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     enrollments: getCourseEnrollmentTrend(course.id, trendWindow, now),
   };
 
-  return { course, sales, reach, progress, trends };
+  return { course, sales, reach, progress, sentiment, trends };
 }
 
 function SectionHeading({
@@ -115,7 +120,7 @@ function SnapshotTile({
 export default function InstructorCourseAnalytics({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, sales, reach, progress, trends } = loaderData;
+  const { course, sales, reach, progress, sentiment, trends } = loaderData;
   const hasData = sales.purchases > 0 || reach.enrollments > 0;
 
   return (
@@ -272,6 +277,44 @@ export default function InstructorCourseAnalytics({
                   steps={progress.dropOff}
                   enrolled={progress.enrollments}
                 />
+              </CardContent>
+            </Card>
+          </section>
+
+          {/* Sentiment */}
+          <section className="mt-10">
+            <SectionHeading title="Sentiment" subtitle="All-time" />
+            <div className="mb-4 grid gap-4 sm:grid-cols-2">
+              <SnapshotTile
+                icon={Star}
+                label="Average rating"
+                value={
+                  sentiment.average === null
+                    ? "—"
+                    : sentiment.average.toFixed(1)
+                }
+                detail={
+                  sentiment.count === 0
+                    ? "No ratings yet"
+                    : `${formatCount(sentiment.count)} ${sentiment.count === 1 ? "rating" : "ratings"}`
+                }
+              />
+              <SnapshotTile
+                icon={MessageSquare}
+                label="Comments"
+                value={formatCount(sentiment.comments)}
+                detail="Across all lessons, replies included"
+              />
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Rating distribution</CardTitle>
+                <CardDescription>
+                  How many students gave each star
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RatingDistribution distribution={sentiment.distribution} />
               </CardContent>
             </Card>
           </section>
