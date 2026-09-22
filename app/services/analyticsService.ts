@@ -3,27 +3,29 @@ import { db } from "~/db";
 import { purchases, enrollments } from "~/db/schema";
 
 // ─── Analytics Service ───
-// Aggregates for Course Performance (instructors) and Platform Health (admins).
-// Everything is computed live from SQLite; nothing is cached or precomputed.
+// Aggregates for Course Performance. Everything is computed live from
+// SQLite; nothing is cached or precomputed.
 // Uses positional parameters (project convention).
 
 // ─── Sales ───
 
 /**
- * All-time revenue for a course: the sum of every purchase's price paid, in
- * cents. Team purchases are a single purchase row created when the team
- * buys, so they count once at purchase time — redeeming seats adds nothing.
+ * All-time sales for a course: revenue is the sum of every purchase's price
+ * paid, in cents; purchases is the number of purchase rows. Team purchases
+ * are a single purchase row created when the team buys, so they count once
+ * at purchase time — redeeming seats adds nothing.
  */
 export function getCourseSales(courseId: number) {
   const row = db
     .select({
       revenue: sql<number>`coalesce(sum(${purchases.pricePaid}), 0)`,
+      purchases: sql<number>`count(*)`,
     })
     .from(purchases)
     .where(eq(purchases.courseId, courseId))
     .get();
 
-  return { revenue: row?.revenue ?? 0 };
+  return { revenue: row?.revenue ?? 0, purchases: row?.purchases ?? 0 };
 }
 
 // ─── Reach ───

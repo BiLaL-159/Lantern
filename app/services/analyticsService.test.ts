@@ -47,8 +47,26 @@ describe("analyticsService", () => {
   });
 
   describe("getCourseSales", () => {
-    it("returns zero revenue for a course with no purchases", () => {
-      expect(getCourseSales(base.course.id)).toEqual({ revenue: 0 });
+    it("returns zero revenue and purchases for a course with no purchases", () => {
+      expect(getCourseSales(base.course.id)).toEqual({
+        revenue: 0,
+        purchases: 0,
+      });
+    });
+
+    it("returns zero data for a draft course", () => {
+      const draft = makeCourse("draft", schema.CourseStatus.Draft);
+      expect(getCourseSales(draft.id)).toEqual({ revenue: 0, purchases: 0 });
+      expect(getCourseReach(draft.id)).toEqual({ enrollments: 0 });
+    });
+
+    it("counts a free purchase even though it adds no revenue", () => {
+      const a = makeStudent("a@example.com");
+      createPurchase(a.id, base.course.id, 0, "US");
+      expect(getCourseSales(base.course.id)).toEqual({
+        revenue: 0,
+        purchases: 1,
+      });
     });
 
     it("sums individual purchases at the price actually paid", () => {
@@ -81,7 +99,10 @@ describe("analyticsService", () => {
       const buyer = makeStudent("buyer@example.com");
       createPurchase(a.id, base.course.id, 4999, "US");
       createTeamPurchase(buyer.id, base.course.id, 12000, "US", 3);
-      expect(getCourseSales(base.course.id).revenue).toBe(16999);
+      expect(getCourseSales(base.course.id)).toEqual({
+        revenue: 16999,
+        purchases: 2,
+      });
     });
 
     it("ignores purchases of other courses", () => {
