@@ -1,16 +1,14 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor.$courseId.students";
-import { getCourseById } from "~/services/courseService";
 import { getCourseEnrolledStudents } from "~/services/enrollmentService";
 import { getUserById } from "~/services/userService";
 import { calculateProgress } from "~/services/progressService";
 import { getQuizByLessonId, getBestAttempt } from "~/services/quizService";
-import { getCurrentUserId } from "~/lib/session";
-import { UserRole } from "~/db/schema";
+import { requireCourseAccess } from "~/lib/courseAccess";
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { AlertTriangle, ArrowLeft, Users, Award } from "lucide-react";
-import { data, isRouteErrorResponse } from "react-router";
+import { isRouteErrorResponse } from "react-router";
 import { db } from "~/db";
 import { modules, lessons } from "~/db/schema";
 import { eq } from "drizzle-orm";
@@ -24,38 +22,11 @@ export function meta({ data: loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const currentUserId = await getCurrentUserId(request);
-
-  if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to view student roster.", {
-      status: 401,
-    });
-  }
-
-  const user = getUserById(currentUserId);
-
-  if (!user || (user.role !== UserRole.Instructor && user.role !== UserRole.Admin)) {
-    throw data("Only instructors and admins can access this page.", {
-      status: 403,
-    });
-  }
-
-  const courseId = parseInt(params.courseId, 10);
-  if (isNaN(courseId)) {
-    throw data("Invalid course ID.", { status: 400 });
-  }
-
-  const course = getCourseById(courseId);
-
-  if (!course) {
-    throw data("Course not found.", { status: 404 });
-  }
-
-  if (course.instructorId !== currentUserId && user.role !== UserRole.Admin) {
-    throw data("You can only view students for your own courses.", {
-      status: 403,
-    });
-  }
+  const { course } = await requireCourseAccess(request, params.courseId, {
+    signInRequired: "Select a user from the DevUI panel to view student roster.",
+    notOwner: "You can only view students for your own courses.",
+  });
+  const courseId = course.id;
 
   // Get all enrolled students
   const enrolledStudents = getCourseEnrolledStudents(courseId);
