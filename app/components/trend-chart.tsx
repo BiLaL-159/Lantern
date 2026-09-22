@@ -8,11 +8,13 @@ import {
   YAxis,
 } from "recharts";
 import type { TrendBucket, TrendPoint } from "~/services/analyticsService";
+import { AXIS_TICK, ChartTooltip } from "./chart-primitives";
 
 // ─── Trend Chart ───
 // One series over time, bucketed daily or weekly (see analyticsService).
 // Colours come from the theme's chart tokens so the chart reads in both
-// light and dark mode. Shared by Course Performance and Platform Health.
+// light and dark mode. Built for Course Performance and reused by
+// Platform Health (#4).
 
 const shortDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -46,12 +48,12 @@ function TrendTooltip({
   const point = payload?.[0]?.payload;
   if (!active || !point) return null;
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
+    <ChartTooltip>
       <p className="font-semibold">{formatValue(point.value)}</p>
       <p className="text-muted-foreground">
         {bucketLabel(point.bucketStart, bucket)}
       </p>
-    </div>
+    </ChartTooltip>
   );
 }
 
@@ -61,7 +63,7 @@ export function TrendChart({
   formatValue,
   formatTick = formatValue,
   color = "var(--chart-1)",
-  emptyMessage = "No data yet.",
+  emptyMessage,
 }: {
   data: TrendPoint[];
   bucket: TrendBucket;
@@ -71,7 +73,8 @@ export function TrendChart({
   formatTick?: (value: number) => string;
   /** CSS colour for the series; defaults to the theme's first chart token. */
   color?: string;
-  emptyMessage?: string;
+  /** Shown instead of the chart when the series has no buckets. */
+  emptyMessage: string;
 }) {
   if (data.length === 0) {
     return (
@@ -95,7 +98,7 @@ export function TrendChart({
             dataKey="bucketStart"
             tickFormatter={(value: string) => shortDate.format(new Date(value))}
             interval={tickInterval}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+            tick={AXIS_TICK}
             tickLine={false}
             axisLine={{ stroke: "var(--border)" }}
             minTickGap={16}
@@ -104,7 +107,7 @@ export function TrendChart({
             tickFormatter={formatTick}
             allowDecimals={false}
             width={56}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+            tick={AXIS_TICK}
             tickLine={false}
             axisLine={false}
           />
