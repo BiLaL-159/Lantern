@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "~/db";
 import {
   purchases,
@@ -8,6 +8,8 @@ import {
   lessonProgress,
   LessonProgressStatus,
   coupons,
+  courseRatings,
+  lessonComments,
 } from "~/db/schema";
 
 // ─── Analytics Service ───
@@ -174,6 +176,58 @@ export function getCourseProgress(courseId: number) {
 
 function percent(numerator: number, denominator: number) {
   return denominator === 0 ? 0 : Math.round((numerator / denominator) * 100);
+}
+
+// ─── Sentiment ───
+
+export type RatingBucket = { rating: number; count: number };
+
+// Stars in display order, highest first.
+const STARS = [5, 4, 3, 2, 1];
+
+/**
+ * Sentiment for a course. average is the mean rating (null with no
+ * ratings) and count the number of ratings — one per student, since a
+ * student re-rating replaces their earlier rating. distribution has one
+ * bucket per star, highest first, every star present even at zero.
+ * comments counts non-deleted comments on the course's lessons, replies
+ * included; a live reply under a deleted parent still counts.
+ */
+export function getCourseSentiment(courseId: number) {
+  const perStar = db
+    .select({
+      rating: courseRatings.rating,
+      count: sql<number>`count(*)`,
+    })
+    .from(courseRatings)
+    .where(eq(courseRatings.courseId, courseId))
+    .groupBy(courseRatings.rating)
+    .all();
+  const counts = new Map(perStar.map((r) => [r.rating, r.count]));
+  const distribution: RatingBucket[] = STARS.map((rating) => ({
+    rating,
+    count: counts.get(rating) ?? 0,
+  }));
+
+  const count = perStar.reduce((sum, r) => sum + r.count, 0);
+  const total = perStar.reduce((sum, r) => sum + r.rating * r.count, 0);
+
+  const commentRow = db
+    .select({ comments: sql<number>`count(*)` })
+    .from(lessonComments)
+    .innerJoin(lessons, eq(lessons.id, lessonComments.lessonId))
+    .innerJoin(modules, eq(modules.id, lessons.moduleId))
+    .where(
+      and(eq(modules.courseId, courseId), isNull(lessonComments.deletedAt))
+    )
+    .get();
+
+  return {
+    average: count === 0 ? null : total / count,
+    count,
+    distribution,
+    comments: commentRow?.comments ?? 0,
+  };
 }
 
 // ─── Trends ───
