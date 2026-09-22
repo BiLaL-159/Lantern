@@ -116,6 +116,13 @@ describe("requireCourseAccess", () => {
     expect(error.data).toBe("Not your course.");
   });
 
+  it("checks course existence before ownership, matching the original ordering", async () => {
+    const other = makeUser(schema.UserRole.Instructor, "other@example.com");
+    const request = await requestAs(other.id);
+    const error = await expectThrown(requireCourseAccess(request, "9999"));
+    expect(error.init?.status).toBe(404);
+  });
+
   it("checks role before course id, matching the original ordering", async () => {
     const request = await requestAs(base.user.id);
     const error = await expectThrown(requireCourseAccess(request, "abc"));
