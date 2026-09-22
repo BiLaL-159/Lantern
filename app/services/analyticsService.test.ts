@@ -16,10 +16,14 @@ import {
   getCourseReach,
   getCourseRevenueTrend,
   getCourseEnrollmentTrend,
+  getCourseProgress,
 } from "./analyticsService";
 import { createPurchase, createTeamPurchase } from "./purchaseService";
 import { redeemCoupon } from "./couponService";
-import { enrollUser } from "./enrollmentService";
+import { enrollUser, markEnrollmentComplete } from "./enrollmentService";
+import { createModule } from "./moduleService";
+import { createLesson } from "./lessonService";
+import { markLessonComplete, markLessonInProgress } from "./progressService";
 
 function makeStudent(email: string) {
   return testDb
@@ -70,6 +74,10 @@ function enrollAt(userId: number, courseId: number, iso: string) {
     .values({ userId, courseId, enrolledAt: iso })
     .returning()
     .get();
+}
+
+function makeLesson(moduleId: number, title: string) {
+  return createLesson(moduleId, title, null, null, null, null);
 }
 
 const NOW = new Date("2026-09-22T10:00:00.000Z");
@@ -211,6 +219,93 @@ describe("analyticsService", () => {
 
     it("is empty all-time when the course has no enrollments", () => {
       expect(getCourseEnrollmentTrend(base.course.id, "all", NOW)).toEqual([]);
+    });
+  });
+
+  describe("getCourseProgress", () => {
+    it("reports 0% completion and an empty funnel for a course with no enrollments", () => {
+      const progress = getCourseProgress(base.course.id);
+      expect(progress.enrollments).toBe(0);
+      expect(progress.completed).toBe(0);
+      expect(progress.completionRate).toBe(0);
+      expect(progress.dropOff).toEqual([]);
+    });
+
+    it("computes completion rate as completed enrollments over all enrollments", () => {
+      const students = ["a", "b", "c", "d"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      for (const s of students) enrollUser(s.id, base.course.id, false, false);
+      markEnrollmentComplete(students[0].id, base.course.id);
+      markEnrollmentComplete(students[1].id, base.course.id);
+
+      const progress = getCourseProgress(base.course.id);
+      expect(progress.enrollments).toBe(4);
+      expect(progress.completed).toBe(2);
+      expect(progress.completionRate).toBe(50);
+    });
+
+    it("lists every lesson in module then lesson order with enrolled as the denominator", () => {
+      // Created out of order so position, not id, must drive the ordering.
+      const second = createModule(base.course.id, "Second", 2);
+      const first = createModule(base.course.id, "First", 1);
+      const l3 = makeLesson(second.id, "Lesson 3");
+      const l2 = createLesson(first.id, "Lesson 2", null, null, 2, null);
+      const l1 = createLesson(first.id, "Lesson 1", null, null, 1, null);
+
+      const [s1, s2, s3, s4] = ["s1", "s2", "s3", "s4"].map((n) =>
+        makeStudent(`${n}@example.com`)
+      );
+      for (const s of [s1, s2, s3, s4]) {
+        enrollUser(s.id, base.course.id, false, false);
+      }
+      markLessonComplete(s1.id, l1.id);
+      markLessonComplete(s1.id, l2.id);
+      markLessonComplete(s1.id, l3.id);
+      markLessonComplete(s2.id, l1.id);
+      markLessonComplete(s2.id, l2.id);
+      markLessonComplete(s3.id, l1.id);
+      markLessonInProgress(s3.id, l2.id); // in progress is not completed
+      // Progress from someone who is not enrolled does not count.
+      const outsider = makeStudent("outsider@example.com");
+      markLessonComplete(outsider.id, l1.id);
+
+      const { dropOff } = getCourseProgress(base.course.id);
+
+      expect(dropOff).toEqual([
+        {
+          lessonId: l1.id,
+          title: "Lesson 1",
+          moduleTitle: "First",
+          completed: 3,
+          percent: 75,
+        },
+        {
+          lessonId: l2.id,
+          title: "Lesson 2",
+          moduleTitle: "First",
+          completed: 2,
+          percent: 50,
+        },
+        {
+          lessonId: l3.id,
+          title: "Lesson 3",
+          moduleTitle: "Second",
+          completed: 1,
+          percent: 25,
+        },
+      ]);
+    });
+
+    it("shows every lesson at 0% when the course has lessons but no enrollments", () => {
+      const mod = createModule(base.course.id, "Only", 1);
+      makeLesson(mod.id, "Lesson 1");
+      makeLesson(mod.id, "Lesson 2");
+      const { dropOff } = getCourseProgress(base.course.id);
+      expect(dropOff.map((d) => [d.title, d.completed, d.percent])).toEqual([
+        ["Lesson 1", 0, 0],
+        ["Lesson 2", 0, 0],
+      ]);
     });
   });
 

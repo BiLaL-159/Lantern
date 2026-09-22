@@ -1,6 +1,13 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "~/db";
-import { purchases, enrollments } from "~/db/schema";
+import {
+  purchases,
+  enrollments,
+  modules,
+  lessons,
+  lessonProgress,
+  LessonProgressStatus,
+} from "~/db/schema";
 
 // ─── Analytics Service ───
 // Aggregates for Course Performance. Everything is computed live from
@@ -42,6 +49,89 @@ export function getCourseReach(courseId: number) {
     .get();
 
   return { enrollments: row?.enrollments ?? 0 };
+}
+
+// ─── Progress ───
+
+export type DropOffStep = {
+  lessonId: number;
+  title: string;
+  moduleTitle: string;
+  /** Enrolled students with a completed progress row for this lesson. */
+  completed: number;
+  /** completed ÷ enrolled, as a whole-number percentage. */
+  percent: number;
+};
+
+/**
+ * Progress for a course. completionRate is enrollments with a completion
+ * time (recorded by progressService, ADR-0001) ÷ all enrollments, as a
+ * whole-number percentage; 0 when nobody is enrolled.
+ *
+ * dropOff is the Drop-off funnel: one step per lesson in module order then
+ * lesson order, each the share of enrolled students who completed it. The
+ * denominator is always every enrolled student, so students who never
+ * started show as a cliff at the first lesson rather than being hidden.
+ */
+export function getCourseProgress(courseId: number) {
+  const row = db
+    .select({
+      enrollments: sql<number>`count(*)`,
+      completed: sql<number>`count(${enrollments.completedAt})`,
+    })
+    .from(enrollments)
+    .where(eq(enrollments.courseId, courseId))
+    .get();
+  const total = row?.enrollments ?? 0;
+  const completed = row?.completed ?? 0;
+
+  // Only enrolled students count towards a lesson's completions.
+  const completedByLesson = db
+    .select({
+      lessonId: lessonProgress.lessonId,
+      completed: sql<number>`count(distinct ${lessonProgress.userId})`,
+    })
+    .from(lessonProgress)
+    .innerJoin(
+      enrollments,
+      and(
+        eq(enrollments.userId, lessonProgress.userId),
+        eq(enrollments.courseId, courseId)
+      )
+    )
+    .where(eq(lessonProgress.status, LessonProgressStatus.Completed))
+    .groupBy(lessonProgress.lessonId)
+    .all();
+  const completions = new Map(
+    completedByLesson.map((r) => [r.lessonId, r.completed])
+  );
+
+  const dropOff: DropOffStep[] = db
+    .select({
+      lessonId: lessons.id,
+      title: lessons.title,
+      moduleTitle: modules.title,
+    })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .where(eq(modules.courseId, courseId))
+    .orderBy(modules.position, lessons.position)
+    .all()
+    .map((lesson) => {
+      const done = completions.get(lesson.lessonId) ?? 0;
+      return { ...lesson, completed: done, percent: percent(done, total) };
+    });
+
+  return {
+    enrollments: total,
+    completed,
+    completionRate: percent(completed, total),
+    dropOff,
+  };
+}
+
+function percent(numerator: number, denominator: number) {
+  return denominator === 0 ? 0 : Math.round((numerator / denominator) * 100);
 }
 
 // ─── Trends ───
