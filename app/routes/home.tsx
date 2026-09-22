@@ -38,11 +38,11 @@ const ANALYTICS_PATH: Partial<Record<UserRole, string>> = {
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Cadence — Learn at your own pace" },
+    { title: "Lantern — For when the docs run out" },
     {
       name: "description",
       content:
-        "A modern course platform for developers. Browse courses, track your progress, and learn at your own pace.",
+        "Structured courses, real quizzes, and progress you can actually see — from instructors who have been exactly where you are.",
     },
   ];
 }
@@ -103,7 +103,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     setIsDark(next);
     document.documentElement.classList.toggle("dark", next);
     try {
-      localStorage.setItem("cadence-theme", next ? "dark" : "light");
+      localStorage.setItem("lantern-theme", next ? "dark" : "light");
     } catch {}
   }
 
@@ -112,7 +112,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link to="/" className="text-xl font-bold tracking-tight">
-            Cadence
+            Lantern
           </Link>
           <nav className="flex items-center gap-6">
             <Link
@@ -163,13 +163,13 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
       <section className="mx-auto max-w-6xl px-6 py-24 text-center">
         <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">
-          Learn to code,
+          Every codebase is new territory.
           <br />
-          <span className="text-muted-foreground">at your own pace</span>
+          <span className="text-muted-foreground">Bring a lantern.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-          Structured courses built by experienced instructors. Track your
-          progress, take quizzes, and build real-world skills.
+          Structured courses, real quizzes, and progress you can actually see —
+          from instructors who have been exactly where you are.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4">
           <Button asChild size="lg">
@@ -269,7 +269,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
       <footer className="border-t border-border py-8">
         <div className="mx-auto max-w-6xl px-6 text-center text-sm text-muted-foreground">
-          Cadence
+          Lantern
         </div>
       </footer>
 

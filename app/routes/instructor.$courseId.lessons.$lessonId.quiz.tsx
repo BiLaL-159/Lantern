@@ -120,7 +120,7 @@ export function meta({ data: loaderData }: Route.MetaArgs) {
   const hasQuiz = !!loaderData?.existingQuiz;
   return [
     {
-      title: `${hasQuiz ? "Edit" : "Create"} Quiz: ${lessonTitle} — Cadence`,
+      title: `${hasQuiz ? "Edit" : "Create"} Quiz: ${lessonTitle} — Lantern`,
     },
   ];
 }

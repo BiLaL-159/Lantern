@@ -12,7 +12,7 @@ import { data, isRouteErrorResponse } from "react-router";
 
 export function meta() {
   return [
-    { title: "Dashboard — Cadence" },
+    { title: "Dashboard — Lantern" },
     { name: "description", content: "Your enrolled courses and progress" },
   ];
 }

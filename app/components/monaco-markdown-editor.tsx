@@ -30,7 +30,7 @@ export function MonacoMarkdownEditor({
   const handleMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
 
-    monaco.editor.defineTheme("cadence-dark", {
+    monaco.editor.defineTheme("lantern-dark", {
       base: "vs-dark",
       inherit: true,
       rules: [],
@@ -49,7 +49,7 @@ export function MonacoMarkdownEditor({
         "focusBorder": "#525252",
       },
     });
-    monaco.editor.setTheme("cadence-dark");
+    monaco.editor.setTheme("lantern-dark");
 
     // Register Prettier as Monaco's native document formatter for Markdown
     monaco.languages.registerDocumentFormattingEditProvider("markdown", {

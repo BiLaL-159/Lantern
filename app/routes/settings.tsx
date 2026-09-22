@@ -22,7 +22,7 @@ const settingsSchema = z.object({
 
 export function meta() {
   return [
-    { title: "Settings — Cadence" },
+    { title: "Settings — Lantern" },
     { name: "description", content: "Edit your profile details" },
   ];
 }
