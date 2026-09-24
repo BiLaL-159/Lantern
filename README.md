@@ -172,13 +172,6 @@ pnpm db:migrate     # applies it
 
 Migrations are checked in and applied in order. They may carry data as well as schema — `0005_backfill_course_completion.sql` retroactively completes enrollments that already qualified when course completion was introduced.
 
-## Limitations
-
-This is a demonstration application, not a production deployment:
-
-- **Authentication is email-only.** Sessions and role-based authorisation are real, but there are no passwords, hashing or email verification.
-- **Checkout is simulated.** Purchases, discounts, team seats and coupon redemption work end to end as records; no payment provider is integrated.
-- **SQLite is a local file**, suited to single-node use.
 
 ---
 
